@@ -49,13 +49,26 @@ class Recognizer:
             pass
         return "cpu", compute_type or "int8"
 
-    def transcribe_file(self, path: str, language: str = "en") -> Transcript:
-        segments, info = self.model.transcribe(path, language=language, vad_filter=False)
+    # Anti-hallucination decode options. Whisper invents text ("thanks for watching",
+    # motivational lines) when fed silence/quiet audio; vad_filter drops non-speech BEFORE
+    # decoding so silence yields nothing, and the thresholds reject low-confidence garbage.
+    _DECODE_OPTS = dict(
+        vad_filter=True,
+        vad_parameters={"min_silence_duration_ms": 400},
+        condition_on_previous_text=False,  # stops it looping prior context
+        no_speech_threshold=0.6,
+        log_prob_threshold=-1.0,
+        temperature=0.0,
+    )
+
+    def _decode(self, source, language: str) -> Transcript:
+        segments, info = self.model.transcribe(source, language=language, **self._DECODE_OPTS)
         text = " ".join(s.text.strip() for s in segments).strip()
         return Transcript(text=text, language=info.language, duration=info.duration)
 
+    def transcribe_file(self, path: str, language: str = "en") -> Transcript:
+        return self._decode(path, language)
+
     def transcribe_array(self, audio, language: str = "en") -> Transcript:
         """Transcribe a float32 numpy array of mono PCM at 16 kHz (live mic path)."""
-        segments, info = self.model.transcribe(audio, language=language, vad_filter=False)
-        text = " ".join(s.text.strip() for s in segments).strip()
-        return Transcript(text=text, language=info.language, duration=info.duration)
+        return self._decode(audio, language)
