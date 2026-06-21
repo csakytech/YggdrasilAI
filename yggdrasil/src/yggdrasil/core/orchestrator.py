@@ -1,11 +1,12 @@
-"""Orchestrator: goal -> plan -> dispatch -> authorize -> results.
+"""Orchestrator: goal -> plan -> dispatch -> authorize -> results, with memory + chat.
 
-Two planners ship: ``HeuristicPlanner`` (no model, covers the File Agent verbs so the spine
-runs today) and ``LLMPlanner`` (schema-constrained, used once Ollama is available). The
-dispatch path transparently handles the authorization-code challenge for dangerous actions.
+If the goal maps to agent actions, they run (with the authorization-code flow for dangerous
+ones). If it doesn't, and an LLM is available, Yggdrasil answers conversationally using its
+persisted memory — so it can hold a conversation and "know" the user across sessions.
 """
 from __future__ import annotations
 
+import copy
 import re
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable
@@ -14,41 +15,48 @@ from .bus import Bus, Result, Status, Task
 from .llm import LLMProvider
 from .permissions import AuthChallenge, PermissionManager
 
-# Supplied by the CLI (stdin) or, later, the voice loop (speech): given a challenge,
-# return the code the user provides.
+# Supplied by the CLI (stdin) or the voice loop (speech): given a challenge, return the code.
 AuthResolver = Callable[[AuthChallenge], Awaitable[str]]
+
+
+def _params_for(action: str, argument: str) -> dict:
+    """Map the planner's generic 'argument' to the param each domain expects."""
+    domain = action.split(".", 1)[0]
+    if domain == "file":
+        return {"path": argument}
+    if domain == "memory":
+        return {"text": argument}
+    return {"argument": argument}
 
 
 class Planner(ABC):
     @abstractmethod
-    async def plan(self, goal: str) -> list[Task]: ...
+    async def plan(self, goal: str, memory_context: str = "") -> list[Task]: ...
 
 
 class HeuristicPlanner(Planner):
-    """Phase-0 placeholder: pattern-matches the two File Agent verbs so the spine runs
-    with no model. Replaced by ``LLMPlanner`` once Ollama is available."""
+    """No-model fallback: pattern-matches the common verbs so the spine runs without Ollama."""
 
-    _CREATE = re.compile(
-        r"(?:create|make|new)\s+(?:a\s+)?folder\s+(?:called\s+|named\s+)?(.+)", re.I
-    )
+    _CREATE = re.compile(r"(?:create|make|new)\s+(?:a\s+)?folder\s+(?:called\s+|named\s+)?(.+)", re.I)
     _DELETE = re.compile(r"(?:delete|remove)\s+(?:the\s+)?(?:file\s+|folder\s+)?(.+)", re.I)
     _OPEN = re.compile(r"open\s+(?:the\s+)?(?:folder\s+|file\s+)?(.+)", re.I)
-    _LIST = re.compile(
-        r"(?:list|show|what(?:'s| is) in)\s+(?:the\s+)?(?:contents of\s+)?(.+)", re.I
-    )
+    _LIST = re.compile(r"(?:list|show|what(?:'s| is) in)\s+(?:the\s+)?(?:contents of\s+)?(.+)", re.I)
+    _REMEMBER = re.compile(r"(?:remember that|remember|note that)\s+(.+)", re.I)
 
-    async def plan(self, goal: str) -> list[Task]:
+    async def plan(self, goal: str, memory_context: str = "") -> list[Task]:
         g = goal.strip().rstrip(".")
         for pat, action in (
             (self._CREATE, "file.create_folder"),
             (self._DELETE, "file.delete"),
             (self._OPEN, "file.open"),
             (self._LIST, "file.list"),
+            (self._REMEMBER, "memory.remember"),
         ):
             m = pat.search(g)
             if m:
-                name = m.group(1).strip().strip("\"'")
-                return [Task(action=action, agent="file", params={"path": name})]
+                arg = m.group(1).strip().strip("\"'")
+                domain = action.split(".", 1)[0]
+                return [Task(action=action, agent=domain, params=_params_for(action, arg))]
         return []
 
 
@@ -61,7 +69,7 @@ PLAN_SCHEMA: dict = {
                 "type": "object",
                 "properties": {
                     "action": {"type": "string"},
-                    "path": {"type": "string"},
+                    "argument": {"type": "string"},
                 },
                 "required": ["action"],
             },
@@ -70,50 +78,53 @@ PLAN_SCHEMA: dict = {
     "required": ["steps"],
 }
 
+_PLANNER_SYS = (
+    "You are Yggdrasil's task planner. Output JSON only: an ordered list of steps using ONLY "
+    "the allowed actions, each with an 'argument' (a folder name, or the thing to remember). "
+    "If the request is a question, greeting, or small talk — NOT an action — return an empty "
+    "steps list. Examples:\n"
+    'create a folder called reports -> {"steps":[{"action":"file.create_folder","argument":"reports"}]}\n'
+    'open reports -> {"steps":[{"action":"file.open","argument":"reports"}]}\n'
+    'what is in reports -> {"steps":[{"action":"file.list","argument":"reports"}]}\n'
+    'my name is Sam -> {"steps":[{"action":"memory.remember","argument":"The user\'s name is Sam"}]}\n'
+    'remember that I like dark mode -> {"steps":[{"action":"memory.remember","argument":"The user likes dark mode"}]}\n'
+    'what is my name -> {"steps":[]}\n'
+    'how are you -> {"steps":[]}'
+)
+
 
 class LLMPlanner(Planner):
-    """Schema-constrained planner. ``action`` is restricted to the available tools (enum),
-    so the model cannot invent tools or emit malformed JSON."""
+    """Schema-constrained planner. ``action`` is restricted to the available tools (enum)."""
 
     def __init__(self, llm: LLMProvider, allowed_actions: list[str]) -> None:
         self.llm = llm
         self.allowed_actions = allowed_actions
 
-    async def plan(self, goal: str) -> list[Task]:
-        import copy
-
+    async def plan(self, goal: str, memory_context: str = "") -> list[Task]:
         schema = copy.deepcopy(PLAN_SCHEMA)
         schema["properties"]["steps"]["items"]["properties"]["action"] = {
             "type": "string",
             "enum": self.allowed_actions,
         }
-        system = (
-            "You are Yggdrasil's task planner. Output JSON only: an ordered list of steps using "
-            "ONLY the allowed actions. 'path' is a simple name inside the user's workspace, never "
-            "an absolute path. If the request is NOT a file operation you can perform, return an "
-            "empty steps list — do NOT invent folders. Examples:\n"
-            'create a folder called reports -> {"steps":[{"action":"file.create_folder","path":"reports"}]}\n'
-            'open reports -> {"steps":[{"action":"file.open","path":"reports"}]}\n'
-            'what is in reports -> {"steps":[{"action":"file.list","path":"reports"}]}\n'
-            'dance a jig -> {"steps":[]}\n'
-            'what is the weather -> {"steps":[]}'
-        )
+        system = _PLANNER_SYS
+        if memory_context:
+            system += f"\nWhat you know about the user:\n{memory_context}"
         resp = await self.llm.generate(system=system, prompt=goal, schema=schema)
         steps = (resp.parsed or {}).get("steps", [])
         tasks: list[Task] = []
         for s in steps:
             action = s.get("action", "")
+            arg = (s.get("argument") or s.get("path") or "").strip()
             domain = action.split(".", 1)[0] if "." in action else action
-            params = {k: v for k, v in s.items() if k != "action"}
-            tasks.append(Task(action=action, agent=domain, params=params))
+            tasks.append(Task(action=action, agent=domain, params=_params_for(action, arg)))
         return tasks
 
 
-# Words that refer back to the last thing acted on ("open it", "delete that").
 _PRONOUNS = {"it", "that", "this", "them", "the folder", "the file"}
 _PRONOUN_GOAL = re.compile(
     r"^(open|list|show|delete|remove)\s+(it|that|this|them|the folder|the file)\s*$", re.I
 )
+_THINK = re.compile(r"<think>.*?</think>", re.S)  # strip qwen3 reasoning if it leaks
 
 
 class Orchestrator:
@@ -123,18 +134,25 @@ class Orchestrator:
         perms: PermissionManager,
         planner: Planner,
         auth_resolver: AuthResolver,
+        memory=None,
+        llm: LLMProvider | None = None,
+        assistant_name: str = "Jarvis",
     ) -> None:
         self.bus = bus
         self.perms = perms
         self.planner = planner
         self.auth_resolver = auth_resolver
-        self._last_path: str | None = None  # for resolving "it" / "that"
+        self.memory = memory
+        self.llm = llm
+        self.assistant_name = assistant_name
+        self._last_path: str | None = None
 
     async def handle(self, goal: str) -> str:
         goal = self._rewrite_pronouns(goal)
-        tasks = await self.planner.plan(goal)
+        ctx = self.memory.context() if self.memory else ""
+        tasks = await self.planner.plan(goal, memory_context=ctx)
         if not tasks:
-            return "I'm not sure how to do that yet. I can create, list, open, or delete folders."
+            return await self._converse(goal, ctx)
         replies = []
         for task in tasks:
             self._resolve_pronoun(task)
@@ -144,9 +162,21 @@ class Orchestrator:
             replies.append(self._render(task, result))
         return " ".join(replies)
 
+    async def _converse(self, goal: str, ctx: str) -> str:
+        if not self.llm:
+            return ("I'm not sure how to do that yet. I can create, list, open, or delete "
+                    "folders, and remember things.")
+        system = (
+            f"You are {self.assistant_name}, a friendly local voice assistant. Answer in one or "
+            "two short sentences suitable to be spoken aloud. Do not use markdown or lists."
+        )
+        if ctx:
+            system += f"\nWhat you know about the user:\n{ctx}"
+        system += "\n/no_think"
+        resp = await self.llm.generate(system=system, prompt=goal, temperature=0.4)
+        return _THINK.sub("", resp.text).strip() or "I'm not sure."
+
     def _rewrite_pronouns(self, goal: str) -> str:
-        """Resolve 'open it' / 'delete that' to the last folder BEFORE planning — a small
-        model usually returns an empty plan for a bare pronoun."""
         if self._last_path:
             m = _PRONOUN_GOAL.match(goal.strip().rstrip("."))
             if m:
@@ -166,12 +196,8 @@ class Orchestrator:
             code = await self.auth_resolver(result.challenge)
             token = self.perms.verify(result.challenge.challenge_id, code)
             if token is None:
-                return Result(
-                    task.task_id,
-                    Status.DENIED,
-                    agent=task.agent,
-                    error="authorization failed or timed out",
-                )
+                return Result(task.task_id, Status.DENIED, agent=task.agent,
+                              error="authorization failed or timed out")
             task.auth_token = token
             result = await self.bus.request(task.agent, task)
         return result
@@ -182,13 +208,19 @@ class Orchestrator:
         data = result.data if isinstance(result.data, dict) else {}
         name = data.get("name") or task.params.get("path") or "it"
         if result.status is Status.OK:
+            if verb == "remember":
+                return "I'll remember that."
+            if verb == "forget":
+                return "Forgotten." if data.get("forgot") else "I didn't have anything like that."
+            if verb == "recall":
+                facts = data.get("facts", [])
+                return ("Here's what I remember: " + "; ".join(facts) + ".") if facts \
+                    else "I don't know much about you yet."
             if data.get("missing"):
                 return f"I couldn't find {name}."
             if verb == "list":
                 items = data.get("items", [])
-                if not items:
-                    return f"{name} is empty."
-                return f"{name} contains: " + ", ".join(items) + "."
+                return (f"{name} contains: " + ", ".join(items) + ".") if items else f"{name} is empty."
             if verb == "open":
                 if data.get("no_display"):
                     return "I can only open a window when you're signed in at the desktop."

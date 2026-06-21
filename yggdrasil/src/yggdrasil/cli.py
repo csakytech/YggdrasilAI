@@ -1,26 +1,25 @@
-"""Text-mode entrypoint — runs the whole Phase-0 spine today.
+"""Text-mode entrypoint.
 
-    python -m yggdrasil
+    python -m yggdrasil       (or the `yggdrasil` / `jarvis-text` commands)
 
-Type a goal. Safe actions run immediately; dangerous ones (delete) print an authorization
-code you must type back as `Authorize <code>`. With no model configured it uses the
-heuristic planner; set YGGDRASIL_MODEL=qwen3:8b (with Ollama running) to use the LLM planner.
+Type a goal or a question. Safe actions run immediately; dangerous ones (delete) print an
+authorization code to type back as `Authorize <code>`. Set YGGDRASIL_MODEL=qwen3:8b (with
+Ollama running) for the LLM planner + conversation; YGGDRASIL_VOICE_MODEL=<piper.onnx> to
+hear replies spoken.
 """
 from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
 
-from .agents.file_agent import FileAgent
-from .core.bus import LocalBus
-from .core.orchestrator import HeuristicPlanner, LLMPlanner, Orchestrator, Planner
-from .core.permissions import AuthChallenge, DefaultPolicy, PermissionManager, UserChannel
+from .core.permissions import AuthChallenge, UserChannel
 
 BANNER = r"""
-  Yggdrasil OS - Phase 0 spine (text mode)
+  Yggdrasil OS - text mode
   Try:  create a folder called Crypto Research
-        delete Crypto Research        (requires an authorization code)
+        remember that I trade on weekends
+        what's my name?            (answered conversationally)
+        delete Crypto Research     (asks for an authorization code)
   'exit' or Ctrl-C to quit.
 """
 
@@ -38,16 +37,6 @@ async def console_auth_resolver(challenge: AuthChallenge) -> str:
     return parts[-1] if parts else ""
 
 
-def build_planner(file_agent: FileAgent) -> Planner:
-    model = os.environ.get("YGGDRASIL_MODEL")
-    if model:
-        from .core.llm import OllamaProvider
-
-        allowed = [f"file.{verb}" for verb in file_agent.capabilities]
-        return LLMPlanner(OllamaProvider(model), allowed_actions=allowed)
-    return HeuristicPlanner()
-
-
 def build_speaker():
     """Optional voice output: set YGGDRASIL_VOICE_MODEL to a Piper .onnx file to hear replies."""
     model = os.environ.get("YGGDRASIL_VOICE_MODEL")
@@ -59,18 +48,17 @@ def build_speaker():
 
 
 async def main_async() -> None:
-    sandbox = Path(os.environ.get("YGGDRASIL_SANDBOX", Path.home() / "YggdrasilSandbox"))
-    bus = LocalBus()
-    perms = PermissionManager(DefaultPolicy(), ConsoleChannel())
-    file_agent = FileAgent(bus, perms, sandbox_root=sandbox)
-    await file_agent.start()
-    orch = Orchestrator(bus, perms, build_planner(file_agent), console_auth_resolver)
+    from .app import build_orchestrator
+
+    bus, orch, file_agent, _store, name = await build_orchestrator(
+        ConsoleChannel(), console_auth_resolver
+    )
     speaker = build_speaker()
 
     print(BANNER)
     print(f"  Sandbox: {file_agent.sandbox_root}\n")
     if speaker:
-        await asyncio.to_thread(speaker.say, "Yggdrasil online.")
+        await asyncio.to_thread(speaker.say, f"{name} online.")
     while True:
         try:
             goal = await asyncio.to_thread(input, "you > ")

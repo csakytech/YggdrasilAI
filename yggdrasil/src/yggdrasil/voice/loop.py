@@ -47,7 +47,7 @@ class VoiceAssistant:
     """Owns the mic stream and the wake/endpoint logic. `on_text(text)` returns
     (reply, conversation_over)."""
 
-    def __init__(self, on_text, speaker, recognizer) -> None:
+    def __init__(self, on_text, speaker, recognizer, greeting="Yggdrasil online.") -> None:
         import numpy as np
         import sounddevice as sd
         from openwakeword.model import Model
@@ -56,6 +56,7 @@ class VoiceAssistant:
         self.on_text = on_text
         self.speaker = speaker
         self.recognizer = recognizer
+        self.greeting = greeting
         self.wake_threshold = float(os.environ.get("YGGDRASIL_WAKE_THRESHOLD", DEF_WAKE_THRESHOLD))
         self.vad_energy = float(os.environ.get("YGGDRASIL_VAD_ENERGY", DEF_VAD_ENERGY))
         wakeword = os.environ.get("YGGDRASIL_WAKEWORD", "hey_jarvis")
@@ -101,7 +102,7 @@ class VoiceAssistant:
     def run(self) -> None:
         with self.sd.InputStream(samplerate=SR, channels=1, dtype="int16", blocksize=BLOCK) as stream:
             self._stream = stream
-            self.speaker.say("Yggdrasil online.")
+            self.speaker.say(self.greeting)
             print("Listening for the wake word… say it, then your request. Ctrl-C to quit.")
             conversation_until = 0.0
             while True:
@@ -146,18 +147,13 @@ def main() -> None:
     if not voice_model:
         print("Set YGGDRASIL_VOICE_MODEL to a Piper .onnx voice file.", file=sys.stderr)
         sys.exit(2)
-    model = os.environ.get("YGGDRASIL_MODEL")
-    sandbox = Path(os.environ.get("YGGDRASIL_SANDBOX", Path.home() / "YggdrasilSandbox"))
-
-    from ..agents.file_agent import FileAgent
-    from ..core.bus import LocalBus
-    from ..core.orchestrator import HeuristicPlanner, LLMPlanner, Orchestrator
-    from ..core.permissions import AuthChallenge, DefaultPolicy, PermissionManager, UserChannel
+    from ..app import build_orchestrator
+    from ..core.permissions import AuthChallenge, UserChannel
     from .stt import Recognizer
     from .tts import Speaker
 
     speaker = Speaker(voice_model)
-    recognizer = Recognizer()  # CPU base.en
+    recognizer = Recognizer()
     holder: dict = {}
 
     class VoiceChannel(UserChannel):
@@ -176,25 +172,15 @@ def main() -> None:
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    bus = LocalBus()
-    perms = PermissionManager(DefaultPolicy(), VoiceChannel())
-    file_agent = FileAgent(bus, perms, sandbox_root=sandbox)
-    loop.run_until_complete(file_agent.start())
-
-    if model:
-        from ..core.llm import OllamaProvider
-
-        allowed = [f"file.{verb}" for verb in file_agent.capabilities]
-        planner = LLMPlanner(OllamaProvider(model), allowed_actions=allowed)
-    else:
-        planner = HeuristicPlanner()
-    orch = Orchestrator(bus, perms, planner, voice_auth_resolver)
+    bus, orch, file_agent, _store, name = loop.run_until_complete(
+        build_orchestrator(VoiceChannel(), voice_auth_resolver)
+    )
 
     def on_text(text: str):
         reply = loop.run_until_complete(orch.handle(text))
         return reply, _ends_conversation(text)
 
-    assistant = VoiceAssistant(on_text, speaker, recognizer)
+    assistant = VoiceAssistant(on_text, speaker, recognizer, greeting=f"{name} online.")
     holder["a"] = assistant
     print(f"Sandbox: {file_agent.sandbox_root}")
     try:
