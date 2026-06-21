@@ -1,16 +1,16 @@
 """Speech-to-text via faster-whisper.
 
-Default is CPU `base.en` (int8): on the i7-3770 it transcribes short commands FASTER than
-real-time and keeps the whole GPU free for the LLM brain — the right split for this box.
-GPU `large-v3-turbo` is available for higher accuracy later, but needs the CUDA math libs
-(`pip install nvidia-cublas-cu12 nvidia-cudnn-cu12` + LD_LIBRARY_PATH) — not installed yet,
-so don't default to it. A Piper-generated WAV can be transcribed for a mic-free round-trip
-smoke test. See docs/ARCHITECTURE.md voice-stack notes.
+Auto-selects GPU `large-v3-turbo` (int8_float16) when the CUDA libs are present — fast
+(~0.6 s) and accurate — and transparently falls back to CPU `base.en` otherwise. Anti-
+hallucination decode options (VAD filter + confidence thresholds) keep silence/quiet audio
+from turning into invented text. Override with YGGDRASIL_STT_MODEL / YGGDRASIL_STT_DEVICE.
+GPU needs nvidia-cublas-cu12 + nvidia-cudnn-cu12 on LD_LIBRARY_PATH (the `jarvis` launchers
+set this). See docs/ARCHITECTURE.md voice-stack notes.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass(slots=True)
@@ -21,45 +21,45 @@ class Transcript:
 
 
 class Recognizer:
-    def __init__(
-        self,
-        model: str = "base.en",
-        device: str = "cpu",  # CPU is fast enough for commands; GPU stays free for the LLM
-        compute_type: Optional[str] = None,
-    ) -> None:
-        from faster_whisper import WhisperModel
-
-        if device == "auto":
-            device, compute_type = self._auto(compute_type)
-        elif compute_type is None:
-            compute_type = "float16" if device == "cuda" else "int8"
-        self.device = device
-        self.compute_type = compute_type
-        self.model = WhisperModel(model, device=device, compute_type=compute_type)
-
-    @staticmethod
-    def _auto(compute_type: Optional[str]) -> tuple[str, str]:
-        """Use CUDA if CTranslate2 can see a GPU (and cuDNN loads), else CPU int8."""
-        try:
-            import ctranslate2
-
-            if ctranslate2.get_cuda_device_count() > 0:
-                return "cuda", compute_type or "float16"
-        except Exception:
-            pass
-        return "cpu", compute_type or "int8"
-
-    # Anti-hallucination decode options. Whisper invents text ("thanks for watching",
-    # motivational lines) when fed silence/quiet audio; vad_filter drops non-speech BEFORE
-    # decoding so silence yields nothing, and the thresholds reject low-confidence garbage.
+    # Whisper invents text ("thanks for watching", motivational lines) on silence/quiet audio;
+    # vad_filter drops non-speech BEFORE decoding, and the thresholds reject low-confidence junk.
     _DECODE_OPTS = dict(
         vad_filter=True,
         vad_parameters={"min_silence_duration_ms": 400},
-        condition_on_previous_text=False,  # stops it looping prior context
+        condition_on_previous_text=False,
         no_speech_threshold=0.6,
         log_prob_threshold=-1.0,
         temperature=0.0,
     )
+
+    def __init__(self, model=None, device=None, compute_type=None) -> None:
+        import numpy as np
+        from faster_whisper import WhisperModel
+
+        model = model or os.environ.get("YGGDRASIL_STT_MODEL")
+        device = device or os.environ.get("YGGDRASIL_STT_DEVICE") or "auto"
+
+        if device == "auto":
+            # Prefer GPU large-v3-turbo, but a cuda model can construct yet fail at encode if
+            # libcublas/libcudnn aren't loadable — so force one encode to validate, else CPU.
+            gpu_model = model or "large-v3-turbo"
+            try:
+                m = WhisperModel(gpu_model, device="cuda", compute_type=compute_type or "int8_float16")
+                list(m.transcribe(np.zeros(16000, dtype=np.float32), language="en")[0])
+                self.model, self.device = m, "cuda"
+                self.model_name, self.compute_type = gpu_model, compute_type or "int8_float16"
+                return
+            except Exception:
+                pass
+            cpu_model = model or "base.en"
+            self.model = WhisperModel(cpu_model, device="cpu", compute_type="int8")
+            self.device, self.model_name, self.compute_type = "cpu", cpu_model, "int8"
+            return
+
+        model = model or ("large-v3-turbo" if device == "cuda" else "base.en")
+        compute_type = compute_type or ("int8_float16" if device == "cuda" else "int8")
+        self.model = WhisperModel(model, device=device, compute_type=compute_type)
+        self.device, self.model_name, self.compute_type = device, model, compute_type
 
     def _decode(self, source, language: str) -> Transcript:
         segments, info = self.model.transcribe(source, language=language, **self._DECODE_OPTS)

@@ -84,13 +84,19 @@ class FileAgent(BaseAgent):
         return candidate
 
     def _resolve_existing(self, target: Path) -> Path:
-        """For operations on existing items, fall back to a case-insensitive match
-        ('voice test' -> 'Voice Test') so spoken names don't have to match case."""
+        """For operations on existing items, match ignoring case AND spaces/punctuation, so
+        'test 2' finds 'test2' and 'voice test' finds 'Voice Test' — Whisper spaces digits
+        unpredictably, so exact matching would constantly fail."""
         if target == self.sandbox_root or target.exists():
             return target
         parent = target.parent
         if parent.is_dir():
+            want = self._norm(target.name)
             for p in parent.iterdir():
-                if p.name.lower() == target.name.lower():
+                if self._norm(p.name) == want:
                     return p
         return target
+
+    @staticmethod
+    def _norm(name: str) -> str:
+        return "".join(ch for ch in name.lower() if ch.isalnum())
