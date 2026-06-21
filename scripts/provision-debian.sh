@@ -16,17 +16,25 @@ VENV="$USER_HOME/yggdrasil-venv"
 log() { printf '\n\033[1;32m== %s\033[0m\n' "$*"; }
 [ "$(id -u)" -eq 0 ] || { echo "Run with sudo: sudo $0 $*"; exit 1; }
 
-log "1/6  Enable contrib + non-free + non-free-firmware"
-# Debian 13 default deb822 format:
-if [ -f /etc/apt/sources.list.d/debian.sources ]; then
-    sed -i -E 's/^Components:.*/Components: main contrib non-free non-free-firmware/' \
-        /etc/apt/sources.list.d/debian.sources
-fi
-# Legacy one-line format (fallback):
-if [ -f /etc/apt/sources.list ] && grep -qE '^\s*deb .* main' /etc/apt/sources.list; then
-    grep -q 'non-free-firmware' /etc/apt/sources.list || \
-        sed -i -E '/^\s*deb .* main/ s/$/ contrib non-free non-free-firmware/' /etc/apt/sources.list
-fi
+log "1/6  Configure APT sources (trixie + updates + security, all components)"
+# Write a complete deb822 source. Robust even after a DVD install, which leaves only a
+# disabled cdrom entry and no network mirror. Enables contrib + non-free + non-free-firmware
+# so the NVIDIA driver and GPU firmware are installable.
+cat > /etc/apt/sources.list.d/debian.sources <<'SRC'
+Types: deb
+URIs: http://deb.debian.org/debian
+Suites: trixie trixie-updates
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: http://deb.debian.org/debian-security
+Suites: trixie-security
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+SRC
+# Neutralize any leftover cdrom entry from a DVD install.
+[ -f /etc/apt/sources.list ] && sed -i 's/^deb cdrom:/#deb cdrom:/' /etc/apt/sources.list || true
 apt-get update
 
 log "2/6  NVIDIA driver + kernel headers (RTX 3060 / Ampere)"
@@ -45,6 +53,23 @@ command -v ollama >/dev/null 2>&1 || curl -fsSL https://ollama.com/install.sh | 
 systemctl enable --now ollama.service || true
 # wait for the daemon
 for _ in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
+
+log "4b/6 Store Ollama models on the largest filesystem (models are big; '/' is often small)"
+# Pick the mount with the most free space; models can be tens of GB as the project grows.
+BEST=$(df -BG --output=avail,target / /home /var 2>/dev/null | tail -n +2 | sort -rn | head -1 | awk '{print $2}')
+[ -z "$BEST" ] && BEST=/var/lib
+MODELS_DIR="${BEST%/}/ollama/models"
+mkdir -p "$MODELS_DIR"
+id ollama >/dev/null 2>&1 && chown -R ollama:ollama "${BEST%/}/ollama"
+mkdir -p /etc/systemd/system/ollama.service.d
+cat > /etc/systemd/system/ollama.service.d/10-models.conf <<CONF
+[Service]
+Environment="OLLAMA_MODELS=$MODELS_DIR"
+CONF
+systemctl daemon-reload
+systemctl restart ollama.service || true
+for _ in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
+echo "Ollama models -> $MODELS_DIR"
 
 log "5/6  Pull default (12GB tier) + CPU-fallback models"
 sudo -u "$USER_NAME" ollama pull qwen3:8b    || echo "WARN: qwen3:8b pull failed (check network)"
