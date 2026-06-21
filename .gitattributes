@@ -1,0 +1,7 @@
+# Linux-targeted project: force LF everywhere so shell hooks / live-build scripts run on
+# Debian even when edited on Windows. CRLF in a *.sh or *.hook.chroot breaks the ISO build.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.iso binary
+*.onnx binary
