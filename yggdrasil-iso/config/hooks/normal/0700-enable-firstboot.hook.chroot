@@ -1,0 +1,10 @@
+#!/bin/sh
+# Enable the run-once first-boot setup unit. It stays enabled but no-ops after the first
+# successful run (guarded by a stamp file).
+set -e
+
+chmod +x /usr/local/sbin/yggdrasil-firstboot.sh
+systemctl enable yggdrasil-firstboot.service
+
+# Do NOT start the app at build time — first-boot decides the model tier first.
+systemctl disable yggdrasil.service 2>/dev/null || true

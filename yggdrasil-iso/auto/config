@@ -1,0 +1,25 @@
+#!/bin/sh
+# live-build configuration. Pins all `lb config` flags so every build is reproducible.
+# Run via `lb config` (which sources this). Do not pass flags by hand.
+set -e
+
+# Edition: "online" (lean, pull model on first boot) or "offline" (bundle the model).
+YGG_EDITION="${YGG_EDITION:-online}"
+
+# Make the edition visible to build-time hooks and to the installed system.
+mkdir -p config/includes.chroot/etc
+echo "YGG_EDITION=${YGG_EDITION}" > config/includes.chroot/etc/yggdrasil-edition.env
+
+lb config noauto \
+    --distribution trixie \
+    --archive-areas "main contrib non-free non-free-firmware" \
+    --debian-installer live \
+    --debian-installer-gui true \
+    --architectures amd64 \
+    --linux-flavours amd64 \
+    --bootappend-live "boot=live components quiet splash" \
+    --iso-application "Yggdrasil OS" \
+    --iso-publisher "Yggdrasil" \
+    --iso-volume "Yggdrasil-${YGG_EDITION}" \
+    --memtest none \
+    "${@}"

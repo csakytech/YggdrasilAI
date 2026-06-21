@@ -1,0 +1,28 @@
+# --- NVIDIA driver + CUDA (non-free); RTX 3060 / Ampere ---
+nvidia-driver
+nvidia-kernel-dkms
+nvidia-cuda-toolkit
+firmware-misc-nonfree
+linux-headers-amd64
+
+# --- Python / app runtime ---
+python3
+python3-venv
+python3-pip
+pipx
+python3-dev
+build-essential
+
+# --- Audio (voice I/O) ---
+portaudio19-dev
+libasound2-dev
+alsa-utils
+pipewire
+pipewire-audio
+
+# --- Ollama prereqs + tooling ---
+curl
+ca-certificates
+jq
+pciutils
+git

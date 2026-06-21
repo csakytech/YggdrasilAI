@@ -1,0 +1,13 @@
+[Unit]
+Description=Yggdrasil first-boot setup (GPU detect, model tier, enable app)
+After=network-online.target ollama.service
+Wants=network-online.target
+ConditionPathExists=!/var/lib/yggdrasil/.firstboot-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/yggdrasil-firstboot.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

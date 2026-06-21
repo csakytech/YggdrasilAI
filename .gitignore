@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Yggdrasil runtime
+YggdrasilSandbox/
+sandbox/
+*.log
+
+# Build artifacts
+*.iso
+yggdrasil-iso/.build/
+yggdrasil-iso/cache/
+yggdrasil-iso/chroot/
+yggdrasil-iso/binary/
+yggdrasil-iso/config/packages.chroot/*.deb
+
+# Scratch
+_whitepaper_extracted.txt

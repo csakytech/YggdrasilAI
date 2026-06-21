@@ -1,0 +1,18 @@
+#!/bin/sh
+# Install Ollama at build time. The daemon is enabled but no model is pulled here unless
+# this is the OFFLINE edition, in which case the default model is baked into the image.
+set -e
+
+. /etc/yggdrasil-edition.env 2>/dev/null || YGG_EDITION=online
+
+export OLLAMA_SKIP_START=1
+curl -fsSL https://ollama.com/install.sh | sh    # installs /usr/local/bin/ollama + unit
+systemctl enable ollama.service                  # daemon on at boot; models come later
+
+if [ "${YGG_EDITION}" = "offline" ]; then
+    # Bake the 12GB-tier default into the squashfs for air-gapped installs.
+    # NOTE: model tags are [VERIFY] at build time; keep in sync with core/llm.py MODEL_TIERS.
+    ollama serve & sleep 5
+    ollama pull qwen3:8b || true
+    kill %1 2>/dev/null || true
+fi

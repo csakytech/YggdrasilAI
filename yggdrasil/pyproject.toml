@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yggdrasil"
+version = "0.0.1"
+description = "Yggdrasil OS — AI-first, local-first agent runtime"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",      # OllamaProvider HTTP client
+]
+
+[project.optional-dependencies]
+# Installed on the Debian box for the real voice loop (Phase 1).
+voice = [
+    "openwakeword>=0.6",
+    "faster-whisper>=1.0",
+    "piper-tts>=1.2",
+    "silero-vad>=5.1",
+    "sounddevice>=0.4",
+    "numpy>=1.26",
+]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+yggdrasil = "yggdrasil.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

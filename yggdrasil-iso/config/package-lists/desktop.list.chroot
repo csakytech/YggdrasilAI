@@ -1,0 +1,5 @@
+# Desktop + base system
+task-gnome-desktop
+network-manager
+firmware-linux
+sudo
