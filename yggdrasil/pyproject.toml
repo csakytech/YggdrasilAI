@@ -14,12 +14,11 @@ dependencies = [
 [project.optional-dependencies]
 # Installed on the Debian box for the real voice loop (Phase 1).
 voice = [
-    "openwakeword>=0.6",
-    "faster-whisper>=1.0",
-    "piper-tts>=1.2",
-    "silero-vad>=5.1",
-    "sounddevice>=0.4",
-    "numpy>=1.26",
+    "openwakeword>=0.6",   # wake word (ships hey_jarvis + silero_vad bundled, no download)
+    "faster-whisper>=1.0", # STT (CPU base.en; GPU large-v3-turbo optional)
+    "piper-tts>=1.2",      # TTS
+    "sounddevice>=0.4",    # mic capture / playback
+    "numpy>=1.26",         # endpointing is energy-based (no PyTorch/webrtcvad needed)
 ]
 dev = [
     "pytest>=8.0",
@@ -27,6 +26,7 @@ dev = [
 
 [project.scripts]
 yggdrasil = "yggdrasil.cli:main"
+yggdrasil-voice = "yggdrasil.voice.loop:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
