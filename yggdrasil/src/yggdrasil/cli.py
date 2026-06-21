@@ -48,6 +48,16 @@ def build_planner(file_agent: FileAgent) -> Planner:
     return HeuristicPlanner()
 
 
+def build_speaker():
+    """Optional voice output: set YGGDRASIL_VOICE_MODEL to a Piper .onnx file to hear replies."""
+    model = os.environ.get("YGGDRASIL_VOICE_MODEL")
+    if not model:
+        return None
+    from .voice.tts import Speaker
+
+    return Speaker(model)
+
+
 async def main_async() -> None:
     sandbox = Path(os.environ.get("YGGDRASIL_SANDBOX", Path.home() / "YggdrasilSandbox"))
     bus = LocalBus()
@@ -55,9 +65,12 @@ async def main_async() -> None:
     file_agent = FileAgent(bus, perms, sandbox_root=sandbox)
     await file_agent.start()
     orch = Orchestrator(bus, perms, build_planner(file_agent), console_auth_resolver)
+    speaker = build_speaker()
 
     print(BANNER)
     print(f"  Sandbox: {file_agent.sandbox_root}\n")
+    if speaker:
+        await asyncio.to_thread(speaker.say, "Yggdrasil online.")
     while True:
         try:
             goal = await asyncio.to_thread(input, "you > ")
@@ -70,6 +83,8 @@ async def main_async() -> None:
             continue
         reply = await orch.handle(goal)
         print(f"jarvis > {reply}\n")
+        if speaker:
+            await asyncio.to_thread(speaker.say, reply)
     await bus.close()
 
 
