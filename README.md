@@ -2,6 +2,8 @@
 
 > Debian becomes the engine. Yggdrasil becomes the intelligence.
 
+**Project:** Yggdrasil · **This release:** **Thor** (releases are named after Norse gods).
+
 An **AI-first, local-first operating environment** built on Debian Linux and shipped as an
 installable `.iso`. Instead of opening applications and driving them by hand, you state a
 **goal** — by voice (custom wake word, e.g. "Jarvis…") or a typed prompt — and an orchestrator

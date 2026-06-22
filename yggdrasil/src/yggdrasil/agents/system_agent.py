@@ -8,7 +8,6 @@ so none require an authorization challenge.
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from datetime import datetime
 from typing import Any
@@ -25,7 +24,6 @@ class SystemAgent(BaseAgent):
         'how much disk space do I have -> {"steps":[{"action":"system.disk","argument":""}]}',
         'what is my system status -> {"steps":[{"action":"system.status","argument":""}]}',
         'what is running -> {"steps":[{"action":"system.running","argument":""}]}',
-        'open firefox -> {"steps":[{"action":"system.open_app","argument":"firefox"}]}',
         'stop asking for confirmation -> {"steps":[{"action":"system.autonomy","argument":"on"}]}',
         'enable autonomous mode -> {"steps":[{"action":"system.autonomy","argument":"on"}]}',
         'be careful again -> {"steps":[{"action":"system.autonomy","argument":"off"}]}',
@@ -35,7 +33,6 @@ class SystemAgent(BaseAgent):
         "disk": Capability("disk", dangerous=False, description="Free disk space"),
         "status": Capability("status", dangerous=False, description="CPU load, memory, uptime"),
         "running": Capability("running", dangerous=False, description="Top running programs"),
-        "open_app": Capability("open_app", dangerous=False, description="Launch a desktop application"),
         "autonomy": Capability("autonomy", dangerous=False, description="Turn autonomous (no-confirmation) mode on or off"),
     }
 
@@ -52,27 +49,12 @@ class SystemAgent(BaseAgent):
             procs = self._top_procs()
             return {"speech": ("Top programs: " + ", ".join(procs) + ".") if procs
                     else "Nothing notable is running."}
-        if verb == "open_app":
-            return {"speech": self._open_app((params.get("argument") or "").strip())}
         if verb == "autonomy":
             on = (params.get("argument") or "").strip().lower() in ("on", "true", "yes", "enable", "enabled", "start")
             self.perms.set_mode("autonomous" if on else "guarded")
             return {"speech": "Autonomous mode on — I won't ask for confirmations." if on
                     else "Back to careful mode — I'll confirm risky actions."}
         raise ValueError(f"unhandled verb '{verb}'")
-
-    def _open_app(self, name: str) -> str:
-        if not name:
-            return "Which application?"
-        if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
-            return "I can only open apps when you're signed in at the desktop."
-        exe = shutil.which(name) or shutil.which(name.lower())
-        try:
-            cmd = [exe] if exe else ["gtk-launch", name]
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return f"Opening {name}."
-        except Exception:
-            return f"I couldn't find an app called {name}."
 
     @staticmethod
     def _mem() -> str:

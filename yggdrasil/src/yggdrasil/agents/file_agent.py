@@ -17,7 +17,7 @@ from ..core.permissions import Capability
 from .base import BaseAgent
 
 # Ops that act on an item that already exists (so we case-insensitively resolve the source).
-_EXISTING = {"list", "open", "delete", "read_file", "append_file", "info", "copy", "move", "rename"}
+_EXISTING = {"list", "open", "delete", "read_file", "append_file", "info", "copy", "move", "rename", "permissions"}
 
 
 class FileAgent(BaseAgent):
@@ -36,6 +36,7 @@ class FileAgent(BaseAgent):
         'move notes.txt to reports -> {"steps":[{"action":"file.move","argument":"notes.txt","argument2":"reports"}]}',
         'rename notes.txt to todo.txt -> {"steps":[{"action":"file.rename","argument":"notes.txt","argument2":"todo.txt"}]}',
         'open reports -> {"steps":[{"action":"file.open","argument":"reports"}]}',
+        'make notes.txt executable -> {"steps":[{"action":"file.permissions","argument":"notes.txt","argument2":"executable"}]}',
         'delete reports -> {"steps":[{"action":"file.delete","argument":"reports"}]}',
     ]
     capabilities = {
@@ -51,6 +52,7 @@ class FileAgent(BaseAgent):
         "move": Capability("move", False, "Move a file or folder"),
         "rename": Capability("rename", False, "Rename a file or folder"),
         "open": Capability("open", False, "Open a file or folder in the desktop file manager"),
+        "permissions": Capability("permissions", False, "Get or set a file's permissions (executable / read-only / writable)"),
         "delete": Capability("delete", dangerous=True, description="Delete a file or folder (irreversible)"),
     }
 
@@ -102,6 +104,25 @@ class FileAgent(BaseAgent):
                 return {"speech": f"I couldn't find {src.name}."}
             kind = "folder" if src.is_dir() else "file"
             return {"speech": f"{src.name} is a {kind}, {self._human(src.stat().st_size)}."}
+
+        if verb == "permissions":
+            import stat as _stat
+
+            if not src.exists():
+                return {"speech": f"I couldn't find {src.name}."}
+            cur = _stat.S_IMODE(src.stat().st_mode)
+            word = (params.get("dest") or "").strip().lower()
+            if not word:
+                return {"speech": f"{src.name} permissions are {oct(cur)}."}
+            if word in ("executable", "execute", "runnable"):
+                src.chmod(cur | 0o111)
+            elif word in ("read-only", "readonly", "locked"):
+                src.chmod(cur & ~0o222)
+            elif word in ("writable", "writeable", "unlock", "unlocked"):
+                src.chmod(cur | 0o200)
+            else:
+                return {"speech": "I can make it executable, read-only, or writable."}
+            return {"speech": f"Set {src.name} to {word}."}
 
         if verb == "list":
             if not src.exists():

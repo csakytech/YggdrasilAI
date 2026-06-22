@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from .agents.app_agent import AppsAgent
 from .agents.file_agent import FileAgent
 from .agents.memory_agent import MemoryAgent
 from .agents.system_agent import SystemAgent
@@ -27,6 +28,13 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     bus = LocalBus()
     perms = PermissionManager(DefaultPolicy(), channel)
 
+    model = os.environ.get("YGGDRASIL_MODEL")
+    llm = None
+    if model:
+        from .core.llm import OllamaProvider
+
+        llm = OllamaProvider(model)
+
     # Register the Core agents (these are our first dogfooded "modules"). On-disk module
     # loading + profiles plug in here later — see docs/MODULES.md.
     registry = Registry()
@@ -35,14 +43,10 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(file_agent)
     registry.register(MemoryAgent(bus, perms, store))
     registry.register(SystemAgent(bus, perms))
+    registry.register(AppsAgent(bus, perms, llm, sandbox))
     await registry.start_all()
 
-    model = os.environ.get("YGGDRASIL_MODEL")
-    llm = None
-    if model:
-        from .core.llm import OllamaProvider
-
-        llm = OllamaProvider(model)
+    if llm:
         planner = LLMPlanner(
             llm,
             allowed_actions=registry.allowed_actions(),
