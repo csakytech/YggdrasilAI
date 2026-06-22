@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .agents.file_agent import FileAgent
 from .agents.memory_agent import MemoryAgent
+from .agents.system_agent import SystemAgent
 from .core.bus import LocalBus
 from .core.memory import MemoryStore
 from .core.orchestrator import AuthResolver, HeuristicPlanner, LLMPlanner, Orchestrator
@@ -33,6 +34,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     store = MemoryStore()
     registry.register(file_agent)
     registry.register(MemoryAgent(bus, perms, store))
+    registry.register(SystemAgent(bus, perms))
     await registry.start_all()
 
     model = os.environ.get("YGGDRASIL_MODEL")

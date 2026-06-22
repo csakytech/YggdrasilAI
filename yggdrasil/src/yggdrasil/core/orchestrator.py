@@ -210,6 +210,10 @@ class Orchestrator:
         data = result.data if isinstance(result.data, dict) else {}
         name = data.get("name") or task.params.get("path") or "it"
         if result.status is Status.OK:
+            # Generic hook: any module can return a ready-to-speak string, so the orchestrator
+            # never needs to know a new agent's verbs (see docs/MODULES.md).
+            if data.get("speech"):
+                return data["speech"]
             if verb == "remember":
                 return "I'll remember that."
             if verb == "forget":
