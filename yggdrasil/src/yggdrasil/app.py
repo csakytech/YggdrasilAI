@@ -11,6 +11,7 @@ from .core.bus import LocalBus
 from .core.memory import MemoryStore
 from .core.orchestrator import AuthResolver, HeuristicPlanner, LLMPlanner, Orchestrator
 from .core.permissions import DefaultPolicy, PermissionManager, UserChannel
+from .core.registry import Registry
 
 
 async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
@@ -25,14 +26,14 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     bus = LocalBus()
     perms = PermissionManager(DefaultPolicy(), channel)
 
+    # Register the Core agents (these are our first dogfooded "modules"). On-disk module
+    # loading + profiles plug in here later — see docs/MODULES.md.
+    registry = Registry()
     file_agent = FileAgent(bus, perms, sandbox_root=sandbox)
-    await file_agent.start()
     store = MemoryStore()
-    mem_agent = MemoryAgent(bus, perms, store)
-    await mem_agent.start()
-
-    allowed = [f"file.{v}" for v in file_agent.capabilities] + \
-              [f"memory.{v}" for v in mem_agent.capabilities]
+    registry.register(file_agent)
+    registry.register(MemoryAgent(bus, perms, store))
+    await registry.start_all()
 
     model = os.environ.get("YGGDRASIL_MODEL")
     llm = None
@@ -40,7 +41,11 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
         from .core.llm import OllamaProvider
 
         llm = OllamaProvider(model)
-        planner = LLMPlanner(llm, allowed_actions=allowed)
+        planner = LLMPlanner(
+            llm,
+            allowed_actions=registry.allowed_actions(),
+            examples=registry.planner_examples(),
+        )
     else:
         planner = HeuristicPlanner()
 

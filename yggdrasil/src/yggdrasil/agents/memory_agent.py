@@ -15,6 +15,11 @@ from .base import BaseAgent
 
 class MemoryAgent(BaseAgent):
     domain = "memory"
+    module_id = "core.memory"
+    planner_examples = [
+        'my name is Sam -> {"steps":[{"action":"memory.remember","argument":"The user\'s name is Sam"}]}',
+        'remember that I like dark mode -> {"steps":[{"action":"memory.remember","argument":"The user likes dark mode"}]}',
+    ]
     capabilities = {
         "remember": Capability("remember", dangerous=False, description="Remember a fact about the user"),
         "forget": Capability("forget", dangerous=False, description="Forget remembered facts matching text"),

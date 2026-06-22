@@ -78,27 +78,29 @@ PLAN_SCHEMA: dict = {
     "required": ["steps"],
 }
 
-_PLANNER_SYS = (
+_PLANNER_BASE = (
     "You are Yggdrasil's task planner. Output JSON only: an ordered list of steps using ONLY "
     "the allowed actions, each with an 'argument' (a folder name, or the thing to remember). "
     "If the request is a question, greeting, or small talk — NOT an action — return an empty "
-    "steps list. Examples:\n"
-    'create a folder called reports -> {"steps":[{"action":"file.create_folder","argument":"reports"}]}\n'
-    'open reports -> {"steps":[{"action":"file.open","argument":"reports"}]}\n'
-    'what is in reports -> {"steps":[{"action":"file.list","argument":"reports"}]}\n'
-    'my name is Sam -> {"steps":[{"action":"memory.remember","argument":"The user\'s name is Sam"}]}\n'
-    'remember that I like dark mode -> {"steps":[{"action":"memory.remember","argument":"The user likes dark mode"}]}\n'
-    'what is my name -> {"steps":[]}\n'
-    'how are you -> {"steps":[]}'
+    "steps list. Examples:"
 )
+# Negative examples are always present; positive examples come from the active agents (so
+# installing an agent extends the planner — see core/registry.py and docs/MODULES.md §9).
+_PLANNER_NEGATIVE = [
+    'what is my name -> {"steps":[]}',
+    'how are you -> {"steps":[]}',
+    'dance a jig -> {"steps":[]}',
+]
 
 
 class LLMPlanner(Planner):
-    """Schema-constrained planner. ``action`` is restricted to the available tools (enum)."""
+    """Schema-constrained planner. ``action`` is restricted to the available tools (enum); the
+    few-shot ``examples`` are supplied by the registry from each active agent's manifest."""
 
-    def __init__(self, llm: LLMProvider, allowed_actions: list[str]) -> None:
+    def __init__(self, llm: LLMProvider, allowed_actions: list[str], examples=None) -> None:
         self.llm = llm
         self.allowed_actions = allowed_actions
+        self.examples = list(examples or [])
 
     async def plan(self, goal: str, memory_context: str = "") -> list[Task]:
         schema = copy.deepcopy(PLAN_SCHEMA)
@@ -106,7 +108,7 @@ class LLMPlanner(Planner):
             "type": "string",
             "enum": self.allowed_actions,
         }
-        system = _PLANNER_SYS
+        system = _PLANNER_BASE + "\n" + "\n".join(self.examples + _PLANNER_NEGATIVE)
         if memory_context:
             system += f"\nWhat you know about the user:\n{memory_context}"
         resp = await self.llm.generate(system=system, prompt=goal, schema=schema)

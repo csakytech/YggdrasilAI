@@ -15,6 +15,10 @@ from ..core.permissions import Capability, PermissionManager
 class BaseAgent(ABC):
     domain: str
     capabilities: dict[str, Capability]
+    # Module metadata (see docs/MODULES.md). Built-ins set these inline; on-disk modules
+    # will get them from their manifest. planner_examples teach the LLM to route here.
+    module_id: str = "core.base"
+    planner_examples: list[str] = []
 
     def __init__(self, bus: Bus, perms: PermissionManager) -> None:
         self.bus = bus

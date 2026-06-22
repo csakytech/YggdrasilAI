@@ -19,6 +19,13 @@ from .base import BaseAgent
 
 class FileAgent(BaseAgent):
     domain = "file"
+    module_id = "core.file"
+    planner_examples = [
+        'create a folder called reports -> {"steps":[{"action":"file.create_folder","argument":"reports"}]}',
+        'open reports -> {"steps":[{"action":"file.open","argument":"reports"}]}',
+        'what is in reports -> {"steps":[{"action":"file.list","argument":"reports"}]}',
+        'delete reports -> {"steps":[{"action":"file.delete","argument":"reports"}]}',
+    ]
     capabilities = {
         "create_folder": Capability(
             "create_folder", dangerous=False, description="Create a folder in the workspace"
