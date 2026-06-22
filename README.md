@@ -42,3 +42,11 @@ See [ROADMAP.md](ROADMAP.md) for the plan and `docs/adr/` for the decisions behi
 
 NVIDIA RTX 3060 12GB · Intel i7-3770 (4c/8t) · 16→32GB RAM · 1TB SSD · Debian (native).
 The 3060's 12GB VRAM is the design target for the default local model tier.
+
+## Author Note
+Growing up watching movies like Wargames with it's WOPR computer, HAL 9000 and more, it has always
+been a dream of mine to create an OS run by Agents known as FusionAI. Having studied Neural networks,
+general AI and algorithmic computations in my early age, I have always been exited to try to bring
+life into AI (AGI). My system is not built from the ground up, instead I have a base Linux distro
+running the hardware layer. The Agents run throughout the system with full control over the system
+itself all the way down the layers. 
