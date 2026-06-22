@@ -1,20 +1,23 @@
-"""Phase-1 File Agent.
+"""File Agent (Core module) — a full file-management toolkit.
 
-All paths are jailed to a sandbox root, so even a bug or a confused plan cannot reach the
-wider filesystem — defence in depth alongside the permission manager. Input paths are treated
-as workspace-relative (a leading "/" is stripped) so the LLM emitting an absolute path can't
-escape; ``..`` traversal is still blocked. ``delete`` is dangerous → authorization challenge.
+Everything is jailed to a sandbox/workspace root (defence in depth alongside the permission
+manager); a leading "/" in a path is treated as workspace-relative so the LLM can't escape,
+and lookups of existing items are space/case-insensitive (Whisper spaces digits oddly). Like a
+desktop in your own folder, routine ops are **safe** (no prompt) — only `delete` is dangerous,
+and even that is session-granted / skippable in autonomous mode (see permissions.py).
 """
 from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from ..core.permissions import Capability
 from .base import BaseAgent
+
+# Ops that act on an item that already exists (so we case-insensitively resolve the source).
+_EXISTING = {"list", "open", "delete", "read_file", "append_file", "info", "copy", "move", "rename"}
 
 
 class FileAgent(BaseAgent):
@@ -22,23 +25,33 @@ class FileAgent(BaseAgent):
     module_id = "core.file"
     planner_examples = [
         'create a folder called reports -> {"steps":[{"action":"file.create_folder","argument":"reports"}]}',
-        'open reports -> {"steps":[{"action":"file.open","argument":"reports"}]}',
+        'create a file called notes.txt -> {"steps":[{"action":"file.create_file","argument":"notes.txt"}]}',
+        'write hello world to notes.txt -> {"steps":[{"action":"file.write_file","argument":"notes.txt","content":"hello world"}]}',
+        'add a line saying done to notes.txt -> {"steps":[{"action":"file.append_file","argument":"notes.txt","content":"done"}]}',
+        'read notes.txt -> {"steps":[{"action":"file.read_file","argument":"notes.txt"}]}',
         'what is in reports -> {"steps":[{"action":"file.list","argument":"reports"}]}',
+        'how big is notes.txt -> {"steps":[{"action":"file.info","argument":"notes.txt"}]}',
+        'find files named report -> {"steps":[{"action":"file.search","argument":"report"}]}',
+        'copy notes.txt to backup.txt -> {"steps":[{"action":"file.copy","argument":"notes.txt","argument2":"backup.txt"}]}',
+        'move notes.txt to reports -> {"steps":[{"action":"file.move","argument":"notes.txt","argument2":"reports"}]}',
+        'rename notes.txt to todo.txt -> {"steps":[{"action":"file.rename","argument":"notes.txt","argument2":"todo.txt"}]}',
+        'open reports -> {"steps":[{"action":"file.open","argument":"reports"}]}',
         'delete reports -> {"steps":[{"action":"file.delete","argument":"reports"}]}',
     ]
     capabilities = {
-        "create_folder": Capability(
-            "create_folder", dangerous=False, description="Create a folder in the workspace"
-        ),
-        "list": Capability(
-            "list", dangerous=False, description="List the contents of a folder"
-        ),
-        "open": Capability(
-            "open", dangerous=False, description="Open a file or folder in the desktop file manager"
-        ),
-        "delete": Capability(
-            "delete", dangerous=True, description="Delete a file or folder (irreversible)"
-        ),
+        "create_folder": Capability("create_folder", False, "Create a folder"),
+        "create_file": Capability("create_file", False, "Create a file (optionally with content)"),
+        "write_file": Capability("write_file", False, "Write/replace a file's content"),
+        "append_file": Capability("append_file", False, "Append content to a file"),
+        "read_file": Capability("read_file", False, "Read a file's content"),
+        "list": Capability("list", False, "List the contents of a folder"),
+        "info": Capability("info", False, "Size and type of a file or folder"),
+        "search": Capability("search", False, "Find items by name in the workspace"),
+        "copy": Capability("copy", False, "Copy a file or folder"),
+        "move": Capability("move", False, "Move a file or folder"),
+        "rename": Capability("rename", False, "Rename a file or folder"),
+        "open": Capability("open", False, "Open a file or folder in the desktop file manager"),
+        "delete": Capability("delete", dangerous=True, description="Delete a file or folder (irreversible)"),
     }
 
     def __init__(self, bus, perms, sandbox_root: str | os.PathLike) -> None:
@@ -47,43 +60,89 @@ class FileAgent(BaseAgent):
         self.sandbox_root.mkdir(parents=True, exist_ok=True)
 
     async def _execute(self, verb: str, params: dict[str, Any]) -> Any:
-        target = self._safe_path(params.get("path", ""))
-        if verb in ("list", "open", "delete"):
-            target = self._resolve_existing(target)
+        if verb == "search":
+            q = (params.get("path") or "").strip().lower()
+            hits = [p.name for p in self.sandbox_root.rglob("*") if q and q in p.name.lower()][:10]
+            return {"speech": ("Found: " + ", ".join(hits) + ".") if hits else f"No matches for {q or 'that'}."}
+
+        src = self._safe_path(params.get("path", ""))
+        if verb in _EXISTING:
+            src = self._resolve_existing(src)
+
         if verb == "create_folder":
-            target.mkdir(parents=True, exist_ok=True)
-            return {"created": str(target), "name": target.name}
+            src.mkdir(parents=True, exist_ok=True)
+            return {"created": str(src), "name": src.name}
+
+        if verb == "create_file":
+            src.parent.mkdir(parents=True, exist_ok=True)
+            src.write_text(params.get("content", ""), encoding="utf-8")
+            return {"speech": f"Created file {src.name}."}
+
+        if verb == "write_file":
+            src.parent.mkdir(parents=True, exist_ok=True)
+            src.write_text(params.get("content", ""), encoding="utf-8")
+            return {"speech": f"Saved {src.name}."}
+
+        if verb == "append_file":
+            with open(src, "a", encoding="utf-8") as f:
+                f.write(params.get("content", ""))
+            return {"speech": f"Updated {src.name}."}
+
+        if verb == "read_file":
+            if not src.is_file():
+                return {"speech": f"I couldn't find {src.name}."}
+            text = src.read_text(encoding="utf-8", errors="replace").strip()
+            if not text:
+                return {"speech": f"{src.name} is empty."}
+            snippet = text[:300] + ("…" if len(text) > 300 else "")
+            return {"speech": f"{src.name} says: {snippet}"}
+
+        if verb == "info":
+            if not src.exists():
+                return {"speech": f"I couldn't find {src.name}."}
+            kind = "folder" if src.is_dir() else "file"
+            return {"speech": f"{src.name} is a {kind}, {self._human(src.stat().st_size)}."}
 
         if verb == "list":
-            if not target.exists():
-                return {"missing": str(target), "name": target.name}
-            items = sorted(p.name + ("/" if p.is_dir() else "") for p in target.iterdir())
-            return {"path": str(target), "name": target.name, "items": items}
+            if not src.exists():
+                return {"missing": str(src), "name": src.name}
+            items = sorted(p.name + ("/" if p.is_dir() else "") for p in src.iterdir())
+            return {"path": str(src), "name": src.name, "items": items}
+
+        if verb in ("copy", "move", "rename"):
+            if not src.exists():
+                return {"speech": f"I couldn't find {src.name}."}
+            dest = self._safe_path(params.get("dest", ""))
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if verb == "copy":
+                if src.is_dir():
+                    shutil.copytree(src, dest, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, dest)
+                return {"speech": f"Copied {src.name} to {dest.name}."}
+            shutil.move(str(src), str(dest))
+            return {"speech": f"{'Renamed' if verb == 'rename' else 'Moved'} {src.name} to {dest.name}."}
 
         if verb == "open":
-            if not target.exists():
-                return {"missing": str(target), "name": target.name}
+            if not src.exists():
+                return {"missing": str(src), "name": src.name}
             if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
-                return {"no_display": True, "name": target.name}
-            subprocess.Popen(
-                ["xdg-open", str(target)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            return {"opened": str(target), "name": target.name}
+                return {"no_display": True, "name": src.name}
+            import subprocess
+
+            subprocess.Popen(["xdg-open", str(src)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"opened": str(src), "name": src.name}
 
         if verb == "delete":
-            if target.is_dir():
-                shutil.rmtree(target)
+            if src.is_dir():
+                shutil.rmtree(src)
             else:
-                target.unlink(missing_ok=True)
-            return {"deleted": str(target), "name": target.name}
+                src.unlink(missing_ok=True)
+            return {"deleted": str(src), "name": src.name}
 
         raise ValueError(f"unhandled verb '{verb}'")
 
     def _safe_path(self, rel: str) -> Path:
-        # Treat input as workspace-relative: strip leading slashes so an absolute path from
-        # the model can't escape. ".." traversal is still caught by the parent check below.
         rel = (rel or "").strip().lstrip("/").strip()
         candidate = (self.sandbox_root / rel).resolve()
         if candidate != self.sandbox_root and self.sandbox_root not in candidate.parents:
@@ -91,9 +150,6 @@ class FileAgent(BaseAgent):
         return candidate
 
     def _resolve_existing(self, target: Path) -> Path:
-        """For operations on existing items, match ignoring case AND spaces/punctuation, so
-        'test 2' finds 'test2' and 'voice test' finds 'Voice Test' — Whisper spaces digits
-        unpredictably, so exact matching would constantly fail."""
         if target == self.sandbox_root or target.exists():
             return target
         parent = target.parent
@@ -107,3 +163,12 @@ class FileAgent(BaseAgent):
     @staticmethod
     def _norm(name: str) -> str:
         return "".join(ch for ch in name.lower() if ch.isalnum())
+
+    @staticmethod
+    def _human(n: int) -> str:
+        size = float(n)
+        for unit in ("bytes", "KB", "MB", "GB"):
+            if size < 1024 or unit == "GB":
+                return f"{int(size)} {unit}" if unit == "bytes" else f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{n} bytes"

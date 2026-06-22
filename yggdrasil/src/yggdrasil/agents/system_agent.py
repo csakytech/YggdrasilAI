@@ -26,6 +26,9 @@ class SystemAgent(BaseAgent):
         'what is my system status -> {"steps":[{"action":"system.status","argument":""}]}',
         'what is running -> {"steps":[{"action":"system.running","argument":""}]}',
         'open firefox -> {"steps":[{"action":"system.open_app","argument":"firefox"}]}',
+        'stop asking for confirmation -> {"steps":[{"action":"system.autonomy","argument":"on"}]}',
+        'enable autonomous mode -> {"steps":[{"action":"system.autonomy","argument":"on"}]}',
+        'be careful again -> {"steps":[{"action":"system.autonomy","argument":"off"}]}',
     ]
     capabilities = {
         "time": Capability("time", dangerous=False, description="Current date and time"),
@@ -33,6 +36,7 @@ class SystemAgent(BaseAgent):
         "status": Capability("status", dangerous=False, description="CPU load, memory, uptime"),
         "running": Capability("running", dangerous=False, description="Top running programs"),
         "open_app": Capability("open_app", dangerous=False, description="Launch a desktop application"),
+        "autonomy": Capability("autonomy", dangerous=False, description="Turn autonomous (no-confirmation) mode on or off"),
     }
 
     async def _execute(self, verb: str, params: dict[str, Any]) -> Any:
@@ -50,6 +54,11 @@ class SystemAgent(BaseAgent):
                     else "Nothing notable is running."}
         if verb == "open_app":
             return {"speech": self._open_app((params.get("argument") or "").strip())}
+        if verb == "autonomy":
+            on = (params.get("argument") or "").strip().lower() in ("on", "true", "yes", "enable", "enabled", "start")
+            self.perms.set_mode("autonomous" if on else "guarded")
+            return {"speech": "Autonomous mode on — I won't ask for confirmations." if on
+                    else "Back to careful mode — I'll confirm risky actions."}
         raise ValueError(f"unhandled verb '{verb}'")
 
     def _open_app(self, name: str) -> str:

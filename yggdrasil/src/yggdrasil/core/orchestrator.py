@@ -70,6 +70,8 @@ PLAN_SCHEMA: dict = {
                 "properties": {
                     "action": {"type": "string"},
                     "argument": {"type": "string"},
+                    "argument2": {"type": "string"},
+                    "content": {"type": "string"},
                 },
                 "required": ["action"],
             },
@@ -118,7 +120,13 @@ class LLMPlanner(Planner):
             action = s.get("action", "")
             arg = (s.get("argument") or s.get("path") or "").strip()
             domain = action.split(".", 1)[0] if "." in action else action
-            tasks.append(Task(action=action, agent=domain, params=_params_for(action, arg)))
+            params = _params_for(action, arg)
+            if domain == "file":
+                if s.get("argument2"):
+                    params["dest"] = str(s["argument2"]).strip()
+                if s.get("content") is not None:
+                    params["content"] = str(s["content"])
+            tasks.append(Task(action=action, agent=domain, params=params))
         return tasks
 
 
