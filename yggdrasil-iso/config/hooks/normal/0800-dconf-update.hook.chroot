@@ -1,0 +1,5 @@
+#!/bin/sh
+# Compile the dconf databases so the default ThorOS wallpaper (and any other defaults) take
+# effect for all users. Runs after the dconf keyfiles are placed via includes.chroot.
+set -e
+dconf update

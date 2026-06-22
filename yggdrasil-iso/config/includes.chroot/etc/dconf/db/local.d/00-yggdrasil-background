@@ -1,0 +1,11 @@
+# Default desktop background for Yggdrasil / ThorOS (replaces Debian's stock wallpaper).
+# Applied system-wide via the `local` dconf db; users may still change their own.
+[org/gnome/desktop/background]
+picture-uri='file:///usr/share/backgrounds/yggdrasil/thoros.png'
+picture-uri-dark='file:///usr/share/backgrounds/yggdrasil/thoros.png'
+picture-options='zoom'
+primary-color='#0a0a1a'
+
+[org/gnome/desktop/screensaver]
+picture-uri='file:///usr/share/backgrounds/yggdrasil/thoros.png'
+picture-options='zoom'
