@@ -47,8 +47,15 @@ Three kinds, increasing in complexity:
 | Kind | Contains | Examples |
 |---|---|---|
 | **agent** | code (`BaseAgent` subclass) + manifest | weather, research, trading, home-automation |
+| **sentinel** | an always-on background monitor that raises alerts unprompted | Security/Warden, backup watcher, crypto/price watcher |
 | **personality** | data only (name, wake word, voice, persona prompt) | "Friday", "Sarcastic Butler" |
 | **team** *(later)* | a bundle of agents + a manager + shared permissions | "Bob's Research Team" |
+
+**Reactive vs Sentinel.** Most agents are *reactive* — the planner invokes them in response to a
+goal. A **sentinel** is *proactive*: it runs a lightweight check on an interval and speaks up
+when something changes (no LLM in the hot loop; the model is only called to triage a finding).
+The Security Sentinel is the first; the same pattern powers any "tell me when X happens"
+monitor (backups, prices, a server). See `core/sentinel.py`.
 
 **A module is a folder with a manifest** — that's the whole definition. The manifest declares
 everything the host needs to *list, gate, and route to* the module **without executing its

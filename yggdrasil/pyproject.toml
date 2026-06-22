@@ -27,6 +27,7 @@ dev = [
 [project.scripts]
 yggdrasil = "yggdrasil.cli:main"
 yggdrasil-voice = "yggdrasil.voice.loop:main"
+yggdrasil-warden = "yggdrasil.core.sentinel:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

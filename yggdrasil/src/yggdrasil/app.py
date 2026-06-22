@@ -8,6 +8,7 @@ from pathlib import Path
 from .agents.app_agent import AppsAgent
 from .agents.file_agent import FileAgent
 from .agents.memory_agent import MemoryAgent
+from .agents.security_agent import SecurityAgent
 from .agents.system_agent import SystemAgent
 from .core.bus import LocalBus
 from .core.memory import MemoryStore
@@ -44,6 +45,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(MemoryAgent(bus, perms, store))
     registry.register(SystemAgent(bus, perms))
     registry.register(AppsAgent(bus, perms, llm, sandbox))
+    registry.register(SecurityAgent(bus, perms, llm))
     await registry.start_all()
 
     if llm:
