@@ -21,3 +21,6 @@ yggdrasil-iso/config/packages.chroot/*.deb
 
 # Scratch
 _whitepaper_extracted.txt
+
+# stray nested checkout (do not track)
+/YggdrasilOS/
