@@ -83,6 +83,19 @@ an authorization challenge: a 6-digit, single-use, TTL-bound code the user must 
 type. The resulting token is bound to the specific action and consumed on use. Challenge
 state never enters the LLM context, so a confused or adversarial model cannot approve itself.
 
+**ADR-0005 — One codebase, three deployment modes (Local / Hybrid / Thin-client).** Yggdrasil
+must run fully on-device *and* offload the brain (and later, whole agents) to the cloud —
+without forking. Two seams make this config-driven, not a rewrite: (1) **`LLMProvider`** — the
+orchestrator/planner depend only on the interface, so the model is local (`OllamaProvider`) or
+cloud (`AnthropicProvider`, …), chosen *per role* by a provider router; (2) the **`Bus`**
+interface — agents address each other by domain, so an agent can be in-process (asyncio) or
+remote (NATS) transparently. Modes: **Local** (all on-device, default, needs a GPU);
+**Hybrid / cloud-brain** (local base + agents, cloud LLM — runs on weak/GPU-less hardware);
+**Thin-client** (a light device runs voice/UI; orchestrator + agents + models live on a home or
+cloud server, reached over the Bus). Principles: **configure the mode, never fork the
+codebase**; cloud is opt-in and **data egress is explicit** — only the high-level goal/plan
+leaves the device, never every tool observation, shown in a privacy panel.
+
 ## 5. Model tiers (drives first-boot detection)
 
 | Detected VRAM | Default model | Notes |
