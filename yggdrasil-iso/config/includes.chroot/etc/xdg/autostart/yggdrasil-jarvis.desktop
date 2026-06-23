@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Jarvis
+Comment=Always-listening Yggdrasil voice assistant
+Exec=sh -c 'sleep 4; exec /usr/local/bin/jarvis'
+Terminal=false
+X-GNOME-Autostart-enabled=true
+# System-wide autostart for every user's GNOME session. Activates on installs once the
+# yggdrasil app + /usr/local/bin/jarvis launcher are packaged into the ISO (.deb milestone).
