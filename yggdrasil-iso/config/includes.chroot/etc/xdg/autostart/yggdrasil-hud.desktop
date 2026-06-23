@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Yggdrasil HUD
+Comment=Bottom-of-screen status strip showing what the assistant is doing
+Exec=yggdrasil-hud
+Terminal=false
+X-GNOME-Autostart-enabled=true
+# Needs an X11 session (see /etc/gdm3/daemon.conf WaylandEnable=false). Activates on installs
+# once the yggdrasil app + /usr/local/bin/yggdrasil-hud launcher are packaged in (.deb milestone).

@@ -136,6 +136,27 @@ _PRONOUN_GOAL = re.compile(
 )
 _THINK = re.compile(r"<think>.*?</think>", re.S)  # strip qwen3 reasoning if it leaks
 
+_VERB_LABEL = {
+    "run": "Running", "create_folder": "Creating", "create_file": "Creating",
+    "write_file": "Writing", "append_file": "Updating", "read_file": "Reading",
+    "delete": "Deleting", "open": "Opening", "list": "Listing", "move": "Moving",
+    "rename": "Renaming", "copy": "Copying", "search": "Searching", "info": "Checking",
+    "permissions": "Permissions", "audit": "Security audit", "updates": "Checking updates",
+    "write_document": "Writing", "launch": "Opening", "list_apps": "Listing apps",
+    "remember": "Remembering", "forget": "Forgetting", "recall": "Recalling",
+    "time": "Clock", "disk": "Disk", "status": "System status", "running": "Processes",
+    "autonomy": "Trust mode",
+}
+
+
+def _activity_label(task: Task) -> str:
+    """A short human label for the HUD, e.g. 'Running top -d' / 'Creating reports'."""
+    verb = task.action.split(".")[-1]
+    arg = (task.params.get("argument") or task.params.get("path")
+           or task.params.get("text") or "").strip()
+    label = _VERB_LABEL.get(verb, verb.replace("_", " ").title())
+    return f"{label} {arg}".strip() if arg else label
+
 
 class Orchestrator:
     def __init__(
@@ -147,6 +168,7 @@ class Orchestrator:
         memory=None,
         llm: LLMProvider | None = None,
         assistant_name: str = "Jarvis",
+        activity=None,
     ) -> None:
         self.bus = bus
         self.perms = perms
@@ -155,7 +177,12 @@ class Orchestrator:
         self.memory = memory
         self.llm = llm
         self.assistant_name = assistant_name
+        self.activity = activity  # publishes "what I'm doing" for the HUD/dashboard
         self._last_path: str | None = None
+
+    def _publish(self, text: str) -> None:
+        if self.activity:
+            self.activity.publish(text)
 
     async def handle(self, goal: str) -> str:
         # Never let a transient error (e.g. an LLM/network hiccup) crash the assistant.
@@ -170,16 +197,20 @@ class Orchestrator:
     async def _handle(self, goal: str) -> str:
         goal = self._rewrite_pronouns(goal)
         ctx = self.memory.context() if self.memory else ""
+        self._publish("Thinking…")
         tasks = await self.planner.plan(goal, memory_context=ctx)
         if not tasks:
+            self._publish("")
             return await self._converse(goal, ctx)
         replies = []
         for task in tasks:
             self._resolve_pronoun(task)
+            self._publish(_activity_label(task))
             result = await self._dispatch(task)
             if result.status is Status.OK and task.params.get("path"):
                 self._last_path = task.params["path"]
             replies.append(self._render(task, result))
+        self._publish("")  # done — let the HUD fade out
         return " ".join(replies)
 
     async def _converse(self, goal: str, ctx: str) -> str:

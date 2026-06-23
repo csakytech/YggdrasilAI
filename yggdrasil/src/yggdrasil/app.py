@@ -11,6 +11,7 @@ from .agents.file_agent import FileAgent
 from .agents.memory_agent import MemoryAgent
 from .agents.security_agent import SecurityAgent
 from .agents.system_agent import SystemAgent
+from .core.activity import Activity
 from .core.bus import LocalBus
 from .core.memory import MemoryStore
 from .core.orchestrator import AuthResolver, HeuristicPlanner, LLMPlanner, Orchestrator
@@ -59,5 +60,6 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     else:
         planner = HeuristicPlanner()
 
-    orch = Orchestrator(bus, perms, planner, auth_resolver, memory=store, llm=llm, assistant_name=name)
+    orch = Orchestrator(bus, perms, planner, auth_resolver, memory=store, llm=llm,
+                        assistant_name=name, activity=Activity())
     return bus, orch, file_agent, store, name
