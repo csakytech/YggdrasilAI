@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -85,6 +86,36 @@ class AppsAgent(BaseAgent):
     def _has_display() -> bool:
         return bool(os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY"))
 
+    @staticmethod
+    def _window_ids() -> set[str]:
+        try:
+            out = subprocess.run(["wmctrl", "-l"], capture_output=True, text=True, timeout=3).stdout
+            return {ln.split()[0] for ln in out.splitlines() if ln.strip()}
+        except Exception:
+            return set()
+
+    def _raise_after_launch(self, before: set[str], class_hint: str = "", timeout: float = 2.5) -> None:
+        """Give the just-launched window focus. GNOME's focus-stealing prevention usually denies
+        focus to apps started by a background process (like us), so we activate it ourselves —
+        otherwise a follow-up like "list files" wouldn't route to the new terminal. Best-effort,
+        X11 only; needs wmctrl."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            new = self._window_ids() - before
+            if new:
+                try:  # activate the newest new window by id
+                    subprocess.run(["wmctrl", "-i", "-a", sorted(new)[-1]],
+                                   capture_output=True, timeout=3)
+                except Exception:
+                    pass
+                return
+            time.sleep(0.15)
+        if class_hint:  # no new window (e.g. URL opened a tab in a running browser) -> raise it
+            try:
+                subprocess.run(["wmctrl", "-x", "-a", class_hint], capture_output=True, timeout=3)
+            except Exception:
+                pass
+
     def _launch(self, name: str) -> str:
         if not name:
             return "Which application?"
@@ -95,13 +126,15 @@ class AppsAgent(BaseAgent):
                      re.sub(r"^(the|my|a)\s+", "", name.lower().strip()))
         parts = _ALIASES.get(key, key).split()
         exe = shutil.which(parts[0])
+        before = self._window_ids()
         try:
             cmd = ([exe, *parts[1:]]) if exe else ["gtk-launch", parts[0]]
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.last_app = key
-            return f"Opening {name}."
         except Exception:
             return f"I couldn't find an app called {name}."
+        self._raise_after_launch(before)  # so it has focus for the next command
+        return f"Opening {name}."
 
     def _close(self, name: str) -> str:
         key = name.lower().strip()
@@ -136,8 +169,10 @@ class AppsAgent(BaseAgent):
             else:
                 return self._search(target)  # not a URL -> treat as a search
         try:
+            before = self._window_ids()
             subprocess.Popen(["xdg-open", t], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.last_app = "firefox"
+            self._raise_after_launch(before, class_hint="firefox", timeout=1.2)
             return f"Opening {t}."
         except Exception:
             return f"I couldn't open {t}."
@@ -150,8 +185,10 @@ class AppsAgent(BaseAgent):
             return "Search for what?"
         url = "https://www.google.com/search?q=" + urllib.parse.quote(q)
         try:
+            before = self._window_ids()
             subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.last_app = "firefox"
+            self._raise_after_launch(before, class_hint="firefox", timeout=1.2)
             return f"Searching the web for {q}."
         except Exception:
             return f"I couldn't search for {q}."
