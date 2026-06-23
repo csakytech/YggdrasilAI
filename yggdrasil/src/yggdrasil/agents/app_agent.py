@@ -27,6 +27,9 @@ _ALIASES = {
     "editor": "gnome-text-editor", "browser": "firefox", "web browser": "firefox",
     "files": "nautilus", "file manager": "nautilus", "terminal": "gnome-terminal",
     "calculator": "gnome-calculator",
+    "dashboard": "yggdrasil-dashboard", "yggdrasil dashboard": "yggdrasil-dashboard",
+    "control panel": "yggdrasil-dashboard",
+    "settings": "gnome-control-center", "system settings": "gnome-control-center",
 }
 
 
@@ -35,6 +38,7 @@ class AppsAgent(BaseAgent):
     module_id = "core.apps"
     planner_examples = [
         'open firefox -> {"steps":[{"action":"app.launch","argument":"firefox"}]}',
+        'open the dashboard -> {"steps":[{"action":"app.launch","argument":"dashboard"}]}',
         'open a word editor -> {"steps":[{"action":"app.launch","argument":"word editor"}]}',
         'write a short story about a dragon -> {"steps":[{"action":"app.write_document","argument":"a short story about a dragon"}]}',
         'write a poem about the sea -> {"steps":[{"action":"app.write_document","argument":"a poem about the sea"}]}',
@@ -69,7 +73,10 @@ class AppsAgent(BaseAgent):
             return "Which application?"
         if not self._has_display():
             return f"I can only open {name} when you're signed in at the desktop."
-        parts = _ALIASES.get(name.lower(), name).split()
+        # Normalize phrasing: "the dashboard program" -> "dashboard"
+        key = re.sub(r"\s+(program|app|application|window)$", "",
+                     re.sub(r"^(the|my|a)\s+", "", name.lower().strip()))
+        parts = _ALIASES.get(key, key).split()
         exe = shutil.which(parts[0])
         try:
             cmd = ([exe, *parts[1:]]) if exe else ["gtk-launch", parts[0]]

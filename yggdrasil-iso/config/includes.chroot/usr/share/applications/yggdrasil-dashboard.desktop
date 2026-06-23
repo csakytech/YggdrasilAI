@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Yggdrasil Dashboard
+Comment=Live view of agents, system status, and security
+Exec=yggdrasil-dashboard
+Terminal=false
+Categories=System;Monitor;
+Keywords=yggdrasil;jarvis;dashboard;agents;security;
