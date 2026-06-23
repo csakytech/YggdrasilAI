@@ -78,10 +78,18 @@ class OllamaProvider(LLMProvider):
         if schema is not None:
             payload["format"] = schema  # JSON-schema constrained decoding
 
-        async with httpx.AsyncClient(timeout=120) as client:
-            r = await client.post(f"{self.host}/api/chat", json=payload)
-            r.raise_for_status()
-            content = r.json()["message"]["content"]
+        content, last_err = None, None
+        for _attempt in range(2):  # one retry — Ollama can be briefly busy (e.g. model load)
+            try:
+                async with httpx.AsyncClient(timeout=180) as client:
+                    r = await client.post(f"{self.host}/api/chat", json=payload)
+                    r.raise_for_status()
+                    content = r.json()["message"]["content"]
+                break
+            except httpx.HTTPError as e:
+                last_err = e
+        if content is None:
+            raise last_err if last_err is not None else RuntimeError("LLM request failed")
 
         parsed = None
         if schema is not None:

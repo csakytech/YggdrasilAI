@@ -158,6 +158,16 @@ class Orchestrator:
         self._last_path: str | None = None
 
     async def handle(self, goal: str) -> str:
+        # Never let a transient error (e.g. an LLM/network hiccup) crash the assistant.
+        try:
+            return await self._handle(goal)
+        except Exception as e:  # noqa: BLE001
+            import sys
+
+            print(f"[orchestrator] error handling goal: {e!r}", file=sys.stderr)
+            return "Sorry, I hit a snag with that one. Please try again."
+
+    async def _handle(self, goal: str) -> str:
         goal = self._rewrite_pronouns(goal)
         ctx = self.memory.context() if self.memory else ""
         tasks = await self.planner.plan(goal, memory_context=ctx)
