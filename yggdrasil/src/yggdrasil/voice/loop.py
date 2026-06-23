@@ -106,22 +106,37 @@ class VoiceAssistant:
             print("Listening for the wake word… say it, then your request. Ctrl-C to quit.")
             conversation_until = 0.0
             while True:
-                frame = self._read()
-                if time.time() >= conversation_until:  # SLEEPING: watch for wake word
-                    score = float(self.wake.predict(frame)[self.wake_key])
-                    if score < self.wake_threshold:
+                # One bad utterance (STT error, agent hiccup, audio glitch) must NEVER kill the
+                # assistant — catch everything per-iteration and keep listening.
+                try:
+                    frame = self._read()
+                    if time.time() >= conversation_until:  # SLEEPING: watch for wake word
+                        score = float(self.wake.predict(frame)[self.wake_key])
+                        if score < self.wake_threshold:
+                            continue
+                        print(f"[wake {score:.2f}]")
+                    text = self.capture_text(prefill=frame)  # LISTENING
+                    self.wake.reset()
+                    if not text:
+                        conversation_until = 0.0
                         continue
-                    print(f"[wake {score:.2f}]")
-                text = self.capture_text(prefill=frame)  # LISTENING
-                self.wake.reset()
-                if not text:
+                    print(f"you (voice) > {text}")
+                    reply, over = self.on_text(text)
+                    print(f"jarvis > {reply}")
+                    self.speaker.say(reply)
+                    conversation_until = 0.0 if over else time.time() + CONVERSATION_WINDOW_S
+                except KeyboardInterrupt:
+                    raise
+                except Exception as e:
+                    import sys
+
+                    print(f"[voice] recovered from: {e!r}", file=sys.stderr)
                     conversation_until = 0.0
-                    continue
-                print(f"you (voice) > {text}")
-                reply, over = self.on_text(text)
-                print(f"jarvis > {reply}")
-                self.speaker.say(reply)
-                conversation_until = 0.0 if over else time.time() + CONVERSATION_WINDOW_S
+                    try:
+                        self.wake.reset()
+                    except Exception:
+                        pass
+                    time.sleep(0.2)  # avoid a tight spin if the error repeats
 
 
 _DIGITS = re.compile(r"\d")
