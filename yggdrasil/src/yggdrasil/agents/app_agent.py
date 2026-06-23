@@ -17,6 +17,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from ..core.focus import set_target
 from ..core.permissions import Capability
 from .base import BaseAgent
 
@@ -94,27 +95,21 @@ class AppsAgent(BaseAgent):
         except Exception:
             return set()
 
-    def _raise_after_launch(self, before: set[str], class_hint: str = "", timeout: float = 2.5) -> None:
-        """Give the just-launched window focus. GNOME's focus-stealing prevention usually denies
-        focus to apps started by a background process (like us), so we activate it ourselves —
-        otherwise a follow-up like "list files" wouldn't route to the new terminal. Best-effort,
-        X11 only; needs wmctrl."""
+    def _track_launched(self, before: set[str], timeout: float = 2.5) -> None:
+        """Record the window the launch produced as the working target, so a follow-up like
+        "list files" routes to the new terminal. We deliberately do NOT try to focus it here —
+        GNOME blocks programmatic activation; the Focus agent grabs focus itself (XSetInputFocus)
+        only at the moment it types. Best-effort, X11 only; needs wmctrl."""
         deadline = time.time() + timeout
         while time.time() < deadline:
             new = self._window_ids() - before
             if new:
-                try:  # activate the newest new window by id
-                    subprocess.run(["wmctrl", "-i", "-a", sorted(new)[-1]],
-                                   capture_output=True, timeout=3)
+                try:  # wmctrl ids are hex; focus tracking uses decimal
+                    set_target(str(int(sorted(new)[-1], 16)))
                 except Exception:
                     pass
                 return
             time.sleep(0.15)
-        if class_hint:  # no new window (e.g. URL opened a tab in a running browser) -> raise it
-            try:
-                subprocess.run(["wmctrl", "-x", "-a", class_hint], capture_output=True, timeout=3)
-            except Exception:
-                pass
 
     def _launch(self, name: str) -> str:
         if not name:
@@ -133,7 +128,7 @@ class AppsAgent(BaseAgent):
             self.last_app = key
         except Exception:
             return f"I couldn't find an app called {name}."
-        self._raise_after_launch(before)  # so it has focus for the next command
+        self._track_launched(before)  # so the next command routes to it
         return f"Opening {name}."
 
     def _close(self, name: str) -> str:
@@ -172,7 +167,7 @@ class AppsAgent(BaseAgent):
             before = self._window_ids()
             subprocess.Popen(["xdg-open", t], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.last_app = "firefox"
-            self._raise_after_launch(before, class_hint="firefox", timeout=1.2)
+            self._track_launched(before, timeout=1.5)
             return f"Opening {t}."
         except Exception:
             return f"I couldn't open {t}."
@@ -188,7 +183,7 @@ class AppsAgent(BaseAgent):
             before = self._window_ids()
             subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.last_app = "firefox"
-            self._raise_after_launch(before, class_hint="firefox", timeout=1.2)
+            self._track_launched(before, timeout=1.5)
             return f"Searching the web for {q}."
         except Exception:
             return f"I couldn't search for {q}."
