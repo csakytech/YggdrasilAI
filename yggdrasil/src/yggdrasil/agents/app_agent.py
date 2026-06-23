@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -43,9 +44,18 @@ class AppsAgent(BaseAgent):
         'write a short story about a dragon -> {"steps":[{"action":"app.write_document","argument":"a short story about a dragon"}]}',
         'write a poem about the sea -> {"steps":[{"action":"app.write_document","argument":"a poem about the sea"}]}',
         'what apps are installed -> {"steps":[{"action":"app.list_apps","argument":""}]}',
+        'close firefox -> {"steps":[{"action":"app.close","argument":"firefox"}]}',
+        'close it -> {"steps":[{"action":"app.close","argument":"it"}]}',
+        'go to google.com -> {"steps":[{"action":"app.browse","argument":"google.com"}]}',
+        'open youtube.com -> {"steps":[{"action":"app.browse","argument":"youtube.com"}]}',
+        'search for robots -> {"steps":[{"action":"app.search","argument":"robots"}]}',
+        'google self driving cars -> {"steps":[{"action":"app.search","argument":"self driving cars"}]}',
     ]
     capabilities = {
         "launch": Capability("launch", False, "Open/launch a desktop application"),
+        "close": Capability("close", False, "Close a running application"),
+        "browse": Capability("browse", False, "Open a web page in the browser"),
+        "search": Capability("search", False, "Search the web"),
         "write_document": Capability("write_document", False, "Write a document with the AI and open it"),
         "list_apps": Capability("list_apps", False, "List installed applications"),
     }
@@ -54,10 +64,17 @@ class AppsAgent(BaseAgent):
         super().__init__(bus, perms)
         self.llm = llm
         self.workspace = Path(workspace)
+        self.last_app: str | None = None  # for "close it" and active-app feel
 
     async def _execute(self, verb: str, params: dict[str, Any]) -> Any:
         if verb == "launch":
             return {"speech": self._launch((params.get("argument") or "").strip())}
+        if verb == "close":
+            return {"speech": self._close((params.get("argument") or "").strip())}
+        if verb == "browse":
+            return {"speech": self._browse((params.get("argument") or "").strip())}
+        if verb == "search":
+            return {"speech": self._search((params.get("argument") or "").strip())}
         if verb == "list_apps":
             return {"speech": self._list_apps()}
         if verb == "write_document":
@@ -81,9 +98,63 @@ class AppsAgent(BaseAgent):
         try:
             cmd = ([exe, *parts[1:]]) if exe else ["gtk-launch", parts[0]]
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.last_app = key
             return f"Opening {name}."
         except Exception:
             return f"I couldn't find an app called {name}."
+
+    def _close(self, name: str) -> str:
+        key = name.lower().strip()
+        if key in ("it", "that", "this", "") and self.last_app:
+            key = self.last_app
+        if not key:
+            return "Close what?"
+        proc = os.path.basename(_ALIASES.get(key, key).split()[0])
+        try:  # graceful window close (X11), best-effort
+            subprocess.run(["wmctrl", "-c", key], capture_output=True, timeout=5)
+        except Exception:
+            pass
+        try:
+            r = subprocess.run(["pkill", "-f", proc], capture_output=True, timeout=5)
+        except Exception:
+            return f"I couldn't close {key}."
+        if r.returncode == 0:
+            if self.last_app == key:
+                self.last_app = None
+            return f"Closed {key}."
+        return f"{key} doesn't seem to be running."
+
+    def _browse(self, target: str) -> str:
+        if not self._has_display():
+            return "I can only browse when you're signed in at the desktop."
+        t = target.strip().rstrip(".")
+        if not t:
+            return "Go where?"
+        if not re.match(r"^https?://", t):
+            if "." in t and " " not in t:
+                t = "https://" + t
+            else:
+                return self._search(target)  # not a URL -> treat as a search
+        try:
+            subprocess.Popen(["xdg-open", t], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.last_app = "firefox"
+            return f"Opening {t}."
+        except Exception:
+            return f"I couldn't open {t}."
+
+    def _search(self, query: str) -> str:
+        if not self._has_display():
+            return "I can only search the web when you're signed in at the desktop."
+        q = query.strip()
+        if not q:
+            return "Search for what?"
+        url = "https://www.google.com/search?q=" + urllib.parse.quote(q)
+        try:
+            subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.last_app = "firefox"
+            return f"Searching the web for {q}."
+        except Exception:
+            return f"I couldn't search for {q}."
 
     @staticmethod
     def _list_apps() -> str:
