@@ -79,9 +79,11 @@ class OllamaProvider(LLMProvider):
             payload["format"] = schema  # JSON-schema constrained decoding
 
         content, last_err = None, None
+        # Keep the worst case short so a stuck model never freezes the voice loop for minutes.
+        # Normal responses are ~3-10s with the model kept resident (OLLAMA_KEEP_ALIVE=-1).
         for _attempt in range(2):  # one retry — Ollama can be briefly busy (e.g. model load)
             try:
-                async with httpx.AsyncClient(timeout=180) as client:
+                async with httpx.AsyncClient(timeout=60) as client:
                     r = await client.post(f"{self.host}/api/chat", json=payload)
                     r.raise_for_status()
                     content = r.json()["message"]["content"]
