@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import re
+import sys
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable
 
@@ -209,7 +210,10 @@ class Orchestrator:
         goal = self._rewrite_pronouns(goal)
         ctx = self.memory.context() if self.memory else ""
         self._publish("Thinking…")
-        tasks = await self.planner.plan(goal, memory_context=ctx, active=active_window())
+        active = active_window()
+        tasks = await self.planner.plan(goal, memory_context=ctx, active=active)
+        print(f"[plan] active={active} goal={goal!r} -> {[t.action for t in tasks]}",
+              file=sys.stderr, flush=True)
         if not tasks:
             self._publish("")
             return await self._converse(goal, ctx)
