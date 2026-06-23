@@ -12,6 +12,7 @@ import time
 import gi
 
 gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")  # both 3.0 and 4.0 typelibs exist — pin or the import is ambiguous
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 from ..core.activity import Activity  # noqa: E402
