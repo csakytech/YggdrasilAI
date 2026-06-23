@@ -100,43 +100,60 @@ class VoiceAssistant:
         return self.recognizer.transcribe_array(f32).text.strip()
 
     def run(self) -> None:
-        with self.sd.InputStream(samplerate=SR, channels=1, dtype="int16", blocksize=BLOCK) as stream:
-            self._stream = stream
-            self.speaker.say(self.greeting)
-            print("Listening for the wake word… say it, then your request. Ctrl-C to quit.")
-            conversation_until = 0.0
-            while True:
-                # One bad utterance (STT error, agent hiccup, audio glitch) must NEVER kill the
-                # assistant — catch everything per-iteration and keep listening.
-                try:
-                    frame = self._read()
-                    if time.time() >= conversation_until:  # SLEEPING: watch for wake word
-                        score = float(self.wake.predict(frame)[self.wake_key])
-                        if score < self.wake_threshold:
-                            continue
-                        print(f"[wake {score:.2f}]")
-                    text = self.capture_text(prefill=frame)  # LISTENING
-                    self.wake.reset()
-                    if not text:
-                        conversation_until = 0.0
-                        continue
-                    print(f"you (voice) > {text}")
-                    reply, over = self.on_text(text)
-                    print(f"jarvis > {reply}")
-                    self.speaker.say(reply)
-                    conversation_until = 0.0 if over else time.time() + CONVERSATION_WINDOW_S
-                except KeyboardInterrupt:
-                    raise
-                except Exception as e:
-                    import sys
+        self.speaker.say(self.greeting)
+        print("Listening for the wake word… say it, then your request. Ctrl-C to quit.", flush=True)
+        while True:  # OUTER: (re)open the mic stream — recover if it ever breaks
+            try:
+                with self.sd.InputStream(samplerate=SR, channels=1, dtype="int16",
+                                         blocksize=BLOCK) as stream:
+                    self._stream = stream
+                    print("[mic] stream open", file=sys.stderr, flush=True)
+                    self._listen()
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                print(f"[voice] mic stream reset ({e!r}); reopening in 1s…",
+                      file=sys.stderr, flush=True)
+                time.sleep(1)
 
-                    print(f"[voice] recovered from: {e!r}", file=sys.stderr)
+    def _listen(self) -> None:
+        conversation_until = 0.0
+        frames, peak, last_beat = 0, 0.0, time.time()
+        while True:
+            frame = self._read()  # OUTSIDE try: a dead stream bubbles up to run() to reopen
+            frames += 1
+            # One bad utterance (STT/agent/TTS error) must never stop us — recover and continue.
+            try:
+                if time.time() >= conversation_until:  # SLEEPING: watch for wake word
+                    score = float(self.wake.predict(frame)[self.wake_key])
+                    peak = max(peak, score)
+                    if time.time() - last_beat >= 10.0:  # heartbeat: proves audio is flowing
+                        print(f"[listening] {frames} frames, peak wake {peak:.2f}",
+                              file=sys.stderr, flush=True)
+                        last_beat, peak = time.time(), 0.0
+                    if score < self.wake_threshold:
+                        continue
+                    print(f"[wake {score:.2f}]", flush=True)
+                text = self.capture_text(prefill=frame)  # LISTENING
+                self.wake.reset()
+                if not text:
                     conversation_until = 0.0
-                    try:
-                        self.wake.reset()
-                    except Exception:
-                        pass
-                    time.sleep(0.2)  # avoid a tight spin if the error repeats
+                    continue
+                print(f"you (voice) > {text}", flush=True)
+                reply, over = self.on_text(text)
+                print(f"jarvis > {reply}", flush=True)
+                self.speaker.say(reply)
+                conversation_until = 0.0 if over else time.time() + CONVERSATION_WINDOW_S
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                print(f"[voice] recovered from: {e!r}", file=sys.stderr, flush=True)
+                conversation_until = 0.0
+                try:
+                    self.wake.reset()
+                except Exception:
+                    pass
+                time.sleep(0.2)
 
 
 _DIGITS = re.compile(r"\d")
