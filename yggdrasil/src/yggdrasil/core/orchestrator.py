@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from typing import Awaitable, Callable
 
 from .bus import Bus, Result, Status, Task
+from .focus import active_window
 from .llm import LLMProvider
 from .permissions import AuthChallenge, PermissionManager
 
@@ -31,7 +32,7 @@ def _params_for(action: str, argument: str) -> dict:
 
 class Planner(ABC):
     @abstractmethod
-    async def plan(self, goal: str, memory_context: str = "") -> list[Task]: ...
+    async def plan(self, goal: str, memory_context: str = "", active: tuple = ("", "")) -> list[Task]: ...
 
 
 class HeuristicPlanner(Planner):
@@ -43,7 +44,7 @@ class HeuristicPlanner(Planner):
     _LIST = re.compile(r"(?:list|show|what(?:'s| is) in)\s+(?:the\s+)?(?:contents of\s+)?(.+)", re.I)
     _REMEMBER = re.compile(r"(?:remember that|remember|note that)\s+(.+)", re.I)
 
-    async def plan(self, goal: str, memory_context: str = "") -> list[Task]:
+    async def plan(self, goal: str, memory_context: str = "", active: tuple = ("", "")) -> list[Task]:
         g = goal.strip().rstrip(".")
         for pat, action in (
             (self._CREATE, "file.create_folder"),
@@ -104,13 +105,23 @@ class LLMPlanner(Planner):
         self.allowed_actions = allowed_actions
         self.examples = list(examples or [])
 
-    async def plan(self, goal: str, memory_context: str = "") -> list[Task]:
+    async def plan(self, goal: str, memory_context: str = "", active: tuple = ("", "")) -> list[Task]:
         schema = copy.deepcopy(PLAN_SCHEMA)
         schema["properties"]["steps"]["items"]["properties"]["action"] = {
             "type": "string",
             "enum": self.allowed_actions,
         }
         system = _PLANNER_BASE + "\n" + "\n".join(self.examples + _PLANNER_NEGATIVE)
+        name, kind = active if isinstance(active, (tuple, list)) and len(active) == 2 else ("", "")
+        if kind == "terminal":
+            system += (f"\nThe user is focused on a TERMINAL ({name}). Shell-style requests like "
+                       "'list files', 'show processes', 'clear', 'go up a folder' must be "
+                       "`focus.enter` with the equivalent shell command (ls, ps aux, clear, cd ..).")
+        elif kind == "browser":
+            system += (f"\nThe user is focused on a BROWSER ({name}). 'go to X' -> app.browse(X); "
+                       "'search X' -> app.search(X).")
+        elif kind:
+            system += f"\nThe user is focused on a {kind} window ({name})."
         if memory_context:
             system += f"\nWhat you know about the user:\n{memory_context}"
         resp = await self.llm.generate(system=system, prompt=goal, schema=schema)
@@ -198,7 +209,7 @@ class Orchestrator:
         goal = self._rewrite_pronouns(goal)
         ctx = self.memory.context() if self.memory else ""
         self._publish("Thinking…")
-        tasks = await self.planner.plan(goal, memory_context=ctx)
+        tasks = await self.planner.plan(goal, memory_context=ctx, active=active_window())
         if not tasks:
             self._publish("")
             return await self._converse(goal, ctx)
