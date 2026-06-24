@@ -28,7 +28,8 @@ dev = [
 yggdrasil = "yggdrasil.cli:main"
 yggdrasil-voice = "yggdrasil.voice.loop:main"
 yggdrasil-warden = "yggdrasil.core.sentinel:main"
-yggdrasil-chat = "yggdrasil.ui.chat:main"
+# Note: the GTK UIs (dashboard, chat) are launched via /usr/local/bin wrappers using the SYSTEM
+# python3 (which has PyGObject/gi) + PYTHONPATH — not venv console scripts, since gi isn't in the venv.
 
 [tool.setuptools.packages.find]
 where = ["src"]
