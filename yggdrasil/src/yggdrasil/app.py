@@ -14,6 +14,7 @@ from .agents.focus_agent import FocusAgent
 from .agents.memory_agent import MemoryAgent
 from .agents.security_agent import SecurityAgent
 from .agents.system_agent import SystemAgent
+from .agents.writer_agent import WriterAgent
 from .core.activity import Activity
 from .core.bus import LocalBus
 from .core.memory import MemoryStore
@@ -55,6 +56,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(FocusAgent(bus, perms))
     registry.register(DocumentsAgent(bus, perms))
     registry.register(ExplainAgent(bus, perms, llm))
+    registry.register(WriterAgent(bus, perms))
     await registry.start_all()
 
     if llm:

@@ -50,6 +50,11 @@ _DOC_EXTS = (".odt", ".doc", ".docx", ".rtf", ".txt", ".md", ".ods", ".xls", ".x
 _SEARCH_DIRS = ["~/Documents", "~/Desktop", "~/Downloads", "~/YggdrasilSandbox"]
 # Preferred word processors for a *blank* new doc, in order; existing files use xdg-open instead.
 _WRITERS = [["libreoffice", "--writer"], ["soffice", "--writer"], ["abiword"], ["gnome-text-editor"]]
+# Files LibreOffice handles — open them with a UNO socket so the Writer agent (writer_agent.py)
+# can drive the running instance.
+_OFFICE_EXTS = {".odt", ".doc", ".docx", ".rtf", ".txt", ".md", ".ods", ".xls", ".xlsx",
+                ".odp", ".ppt", ".pptx"}
+_UNO_ACCEPT = "--accept=socket,host=localhost,port=2002;urp;"
 
 
 class DocumentsAgent(BaseAgent):
@@ -107,6 +112,8 @@ class DocumentsAgent(BaseAgent):
         cmd = next((c for c in _WRITERS if shutil.which(c[0])), None)
         if not cmd:
             return "I couldn't find a word processor to open."
+        if cmd[0] in ("libreoffice", "soffice"):
+            cmd = [*cmd, _UNO_ACCEPT]  # enable UNO so the Writer agent can drive it
         before = window_ids()
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self._track_bg(before)
@@ -142,7 +149,12 @@ class DocumentsAgent(BaseAgent):
         matches.sort(reverse=True)  # most recently modified first
         target = matches[0][1]
         before = window_ids()
-        subprocess.Popen(["xdg-open", str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        soffice = shutil.which("soffice") or shutil.which("libreoffice")
+        if target.suffix.lower() in _OFFICE_EXTS and soffice:  # open with a UNO socket
+            subprocess.Popen([soffice, _UNO_ACCEPT, str(target)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            subprocess.Popen(["xdg-open", str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.last_doc = target
         self._track_bg(before)
         if len(matches) > 1:
