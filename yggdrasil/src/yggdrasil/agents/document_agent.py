@@ -113,7 +113,8 @@ class DocumentsAgent(BaseAgent):
         if not cmd:
             return "I couldn't find a word processor to open."
         if cmd[0] in ("libreoffice", "soffice"):
-            cmd = [*cmd, _UNO_ACCEPT]  # enable UNO so the Writer agent can drive it
+            # --norestore: skip the post-crash recovery dialog, which otherwise blocks the UNO socket
+            cmd = [*cmd, "--norestore", _UNO_ACCEPT]  # enable UNO so the Writer agent can drive it
         before = window_ids()
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self._track_bg(before)
@@ -151,7 +152,7 @@ class DocumentsAgent(BaseAgent):
         before = window_ids()
         soffice = shutil.which("soffice") or shutil.which("libreoffice")
         if target.suffix.lower() in _OFFICE_EXTS and soffice:  # open with a UNO socket
-            subprocess.Popen([soffice, _UNO_ACCEPT, str(target)],
+            subprocess.Popen([soffice, "--norestore", _UNO_ACCEPT, str(target)],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             subprocess.Popen(["xdg-open", str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
