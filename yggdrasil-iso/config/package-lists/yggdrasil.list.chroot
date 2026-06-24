@@ -26,3 +26,11 @@ ca-certificates
 jq
 pciutils
 git
+
+# --- Desktop control + GTK UIs + office automation (Yggdrasil agents) ---
+wmctrl           # window activation/close (Apps + focus tracking)
+xdotool          # keystroke injection + active-window detection (Focus agent)
+x11-utils        # xprop — focused-window WM_CLASS
+python3-gi       # PyGObject for the GTK dashboard/HUD/chat (also pulled by GNOME)
+gir1.2-gtk-3.0   # GTK3 typelib for the HUD + chat window
+python3-uno      # UNO bridge for the LibreOffice (Writer) deep-adapter agent
