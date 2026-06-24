@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import time
 
 # The window the Apps agent most recently launched (decimal X id). GNOME won't focus it for us,
 # so we remember it and focus it ourselves when typing.
@@ -75,6 +76,24 @@ def set_target(win_id_dec: str) -> None:
 
 def clear_target() -> None:
     _TARGET.update(id="", kind="", name="")
+
+
+def window_ids() -> set[str]:
+    """All managed window ids (decimal strings) — snapshot before launching to detect the new one."""
+    return _windows_dec()
+
+
+def track_new_window(before: set[str], timeout: float = 2.5) -> None:
+    """Record the window that appears (vs ``before``) as the working target, so a follow-up
+    command routes to it. Does NOT focus it — the Focus agent grabs focus itself at type time.
+    Poll-based; safe to run in a background thread for slow apps (e.g. LibreOffice)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        new = _windows_dec() - before
+        if new:
+            set_target(sorted(new)[-1])
+            return
+        time.sleep(0.15)
 
 
 def _live_target() -> dict | None:
