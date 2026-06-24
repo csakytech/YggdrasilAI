@@ -17,15 +17,27 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree
 
-from ..core.focus import track_new_window, window_ids
+from ..core.focus import track_new_window, window_ids, working_window
 from ..core.permissions import Capability
 from .base import BaseAgent
+
+_DOCS_DIR = os.path.expanduser("~/Documents")  # where "save as X" writes, so "open X" finds it later
+_SETTLE = 0.7  # wait after focusing / between keystroke steps so dialogs are ready
+
+
+def _xdo(args: list[str]) -> bool:
+    try:
+        subprocess.run(["xdotool", *args], capture_output=True, timeout=8)
+        return True
+    except Exception:
+        return False
 
 # Words people say around a document name that aren't part of the name itself.
 _FILLER = re.compile(
@@ -51,11 +63,16 @@ class DocumentsAgent(BaseAgent):
         'pull up my resume -> {"steps":[{"action":"documents.open","argument":"resume"}]}',
         'what was I working on yesterday -> {"steps":[{"action":"documents.recent","argument":"yesterday"}]}',
         'what documents did I open recently -> {"steps":[{"action":"documents.recent","argument":""}]}',
+        'save the document -> {"steps":[{"action":"documents.save","argument":""}]}',
+        'save this document as testone -> {"steps":[{"action":"documents.save","argument":"testone"}]}',
+        'save as testone and exit -> {"steps":[{"action":"documents.save","argument":"testone","argument2":"exit"}]}',
+        'save and close the document -> {"steps":[{"action":"documents.save","argument":"","argument2":"exit"}]}',
     ]
     capabilities = {
         "new": Capability("new", False, "Open a new blank document"),
         "open": Capability("open", False, "Find and open a document by name"),
         "recent": Capability("recent", False, "List recently opened documents"),
+        "save": Capability("save", False, "Save the open document (optionally with a name) and optionally close it"),
     }
 
     def __init__(self, bus, perms) -> None:
@@ -70,6 +87,8 @@ class DocumentsAgent(BaseAgent):
             return {"speech": self._open(arg)}
         if verb == "recent":
             return {"speech": self._recent(arg)}
+        if verb == "save":
+            return {"speech": self._save(arg, (params.get("argument2") or ""))}
         raise ValueError(f"unhandled verb '{verb}'")
 
     @staticmethod
@@ -130,6 +149,44 @@ class DocumentsAgent(BaseAgent):
             others = ", ".join(f.stem for _, f in matches[1:3])
             return f"Opening {target.stem}. I also found {others} — say its name if you meant that one."
         return f"Opening {target.stem}."
+
+    def _save(self, name: str, flag: str) -> str:
+        if not self._has_display():
+            return "I can only save a document at the desktop."
+        win_id, _, kind = working_window()
+        if not kind:
+            return "I don't see a document open to save."
+        exit_after = bool(re.search(r"\b(exit|close|quit|done|finish)\b", f"{name} {flag}", re.I))
+        # Reduce the spoken phrase to a clean filename stem.
+        n = _FILLER.sub(" ", name)
+        n = re.sub(r"\b(and|then|exit|close|quit|done|finish|save|as|it|this)\b", " ", n, flags=re.I)
+        n = re.sub(r"[^\w .-]", " ", n)
+        n = re.sub(r"\s+", " ", n).strip()
+        n = re.sub(r"\.(odt|docx?|txt|rtf|md|odp|ods|pdf)$", "", n, flags=re.I).strip()
+
+        _xdo(["windowfocus", win_id])
+        time.sleep(_SETTLE)
+        if n:
+            os.makedirs(_DOCS_DIR, exist_ok=True)
+            # Type the full path WITH .odt so LibreOffice saves native ODF (no "keep format?" dialog)
+            # to a known folder, and a later "open <name>" finds it.
+            path = os.path.join(_DOCS_DIR, n + ".odt")
+            _xdo(["key", "ctrl+shift+s"])  # Save As
+            time.sleep(1.4)
+            _xdo(["type", "--clearmodifiers", "--delay", "25", "--", path])
+            time.sleep(0.4)
+            _xdo(["key", "Return"])
+            time.sleep(1.3)
+            saved = f" as {n}"
+        else:
+            _xdo(["key", "ctrl+s"])  # plain save for an already-named document
+            time.sleep(0.8)
+            saved = ""
+        if exit_after:
+            time.sleep(0.5)
+            _xdo(["key", "ctrl+q"])  # close the program
+            return f"Saved{saved} and closed it."
+        return f"Saved{saved}."
 
     def _recent(self, when: str) -> str:
         path = Path(os.path.expanduser("~/.local/share/recently-used.xbel"))

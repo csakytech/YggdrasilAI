@@ -140,6 +140,11 @@ class LLMPlanner(Planner):
                     params["dest"] = str(s["argument2"]).strip()
                 if s.get("content") is not None:
                     params["content"] = str(s["content"])
+            else:  # generic passthrough so any agent can take a second argument (e.g. documents.save)
+                if s.get("argument2"):
+                    params["argument2"] = str(s["argument2"]).strip()
+                if s.get("content") is not None:
+                    params["content"] = str(s["content"])
             tasks.append(Task(action=action, agent=domain, params=params))
         return tasks
 
