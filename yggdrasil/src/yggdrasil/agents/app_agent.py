@@ -32,6 +32,8 @@ _ALIASES = {
     "calculator": "gnome-calculator",
     "dashboard": "yggdrasil-dashboard", "yggdrasil dashboard": "yggdrasil-dashboard",
     "control panel": "yggdrasil-dashboard",
+    "chat": "yggdrasil-chat", "chat window": "yggdrasil-chat", "chat box": "yggdrasil-chat",
+    "text chat": "yggdrasil-chat", "jarvis chat": "yggdrasil-chat",
     "settings": "gnome-control-center", "system settings": "gnome-control-center",
 }
 

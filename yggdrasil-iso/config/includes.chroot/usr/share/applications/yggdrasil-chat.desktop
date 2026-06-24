@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Jarvis Chat
+Comment=Type to your Jarvis assistant — same agents as voice
+Exec=yggdrasil-chat
+Terminal=false
+Categories=Utility;
+Keywords=yggdrasil;jarvis;chat;assistant;ai;

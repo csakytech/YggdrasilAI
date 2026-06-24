@@ -28,6 +28,7 @@ dev = [
 yggdrasil = "yggdrasil.cli:main"
 yggdrasil-voice = "yggdrasil.voice.loop:main"
 yggdrasil-warden = "yggdrasil.core.sentinel:main"
+yggdrasil-chat = "yggdrasil.ui.chat:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
