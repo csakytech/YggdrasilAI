@@ -12,6 +12,7 @@ import sys
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable
 
+from . import trace
 from .bus import Bus, Result, Status, Task
 from .focus import active_window
 from .llm import LLMProvider
@@ -223,17 +224,31 @@ class Orchestrator:
               file=sys.stderr, flush=True)
         if not tasks:
             self._publish("")
-            return await self._converse(goal, ctx)
-        replies = []
+            reply = await self._converse(goal, ctx)
+            trace.record(trace.Decision(goal=goal, active=active, memory_used=bool(ctx),
+                                        route="conversation", outcome=reply))
+            return reply
+        replies, steps, ok = [], [], True
         for task in tasks:
             self._resolve_pronoun(task)
             self._publish(_activity_label(task))
             result = await self._dispatch(task)
             if result.status is Status.OK and task.params.get("path"):
                 self._last_path = task.params["path"]
+            steps.append({
+                "action": task.action,
+                "arg": (task.params.get("argument") or task.params.get("path")
+                        or task.params.get("text") or ""),
+                "status": result.status.name,
+            })
+            if result.status is not Status.OK:
+                ok = False
             replies.append(self._render(task, result))
         self._publish("")  # done — let the HUD fade out
-        return " ".join(replies)
+        reply = " ".join(replies)
+        trace.record(trace.Decision(goal=goal, active=active, memory_used=bool(ctx),
+                                    route="action", steps=steps, outcome=reply, ok=ok))
+        return reply
 
     async def _converse(self, goal: str, ctx: str) -> str:
         if not self.llm:
