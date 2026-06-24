@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
+
+# A new fact about the user's name should replace the old one, not pile up alongside it.
+_NAME_FACT = re.compile(r"\b(name|call me)\b", re.I)
 
 
 def default_path() -> Path:
@@ -35,9 +39,15 @@ class MemoryStore:
 
     def remember(self, fact: str) -> str:
         fact = (fact or "").strip()
-        if fact and fact not in self.facts:
+        if not fact:
+            return fact
+        # A new name declaration supersedes any prior one (so we don't keep both "name is Joe"
+        # and "name is Michael" and then waffle about which is right).
+        if _NAME_FACT.search(fact):
+            self.facts = [f for f in self.facts if not _NAME_FACT.search(f)]
+        if fact not in self.facts:
             self.facts.append(fact)
-            self._save()
+        self._save()
         return fact
 
     def forget(self, query: str) -> list[str]:

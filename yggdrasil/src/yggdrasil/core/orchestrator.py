@@ -125,12 +125,14 @@ class LLMPlanner(Planner):
             system += f"\nThe user is focused on a {kind} window ({name})."
         if memory_context:
             system += f"\nWhat you know about the user:\n{memory_context}"
+        system += "\n/no_think"  # qwen3: skip the reasoning phase so it can't leak into arguments
         resp = await self.llm.generate(system=system, prompt=goal, schema=schema)
         steps = (resp.parsed or {}).get("steps", [])
         tasks: list[Task] = []
         for s in steps:
             action = s.get("action", "")
             arg = (s.get("argument") or s.get("path") or "").strip()
+            arg = re.sub(r"</?think>|/no_?think", "", arg, flags=re.I).strip()  # belt-and-suspenders
             domain = action.split(".", 1)[0] if "." in action else action
             params = _params_for(action, arg)
             if domain == "file":
