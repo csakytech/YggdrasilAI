@@ -156,6 +156,17 @@ _PRONOUN_GOAL = re.compile(
 )
 _THINK = re.compile(r"<think>.*?</think>", re.S)  # strip qwen3 reasoning if it leaks
 
+# "Why did you do that?" is a meta-question about my own last action. Route it deterministically
+# to the Explain agent rather than trusting the planner (which is flaky on these). Tuned to NOT
+# catch general questions like "why is the sky blue" or "explain photosynthesis".
+_EXPLAIN_RE = re.compile(
+    r"^\s*(why\??$|why did (you|it|that)|why'd you|why that\b|"
+    r"explain (that|why|your|the last|what you|yourself)|"
+    r"what were you thinking|how did you (decide|know|choose|pick|do)|"
+    r"what made you|how come you)",
+    re.I,
+)
+
 _VERB_LABEL = {
     "run": "Running", "create_folder": "Creating", "create_file": "Creating",
     "write_file": "Writing", "append_file": "Updating", "read_file": "Reading",
@@ -216,6 +227,10 @@ class Orchestrator:
 
     async def _handle(self, goal: str) -> str:
         goal = self._rewrite_pronouns(goal)
+        if _EXPLAIN_RE.match(goal.strip()):  # "why did you…" -> explain my last action, reliably
+            self._publish("")
+            task = Task(action="explain.why", agent="explain", params={"argument": ""})
+            return self._render(task, await self._dispatch(task))
         ctx = self.memory.context() if self.memory else ""
         self._publish("Thinking…")
         active = active_window()
