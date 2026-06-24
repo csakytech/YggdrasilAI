@@ -84,16 +84,18 @@ def window_ids() -> set[str]:
 
 
 def track_new_window(before: set[str], timeout: float = 2.5) -> None:
-    """Record the window that appears (vs ``before``) as the working target, so a follow-up
-    command routes to it. Does NOT focus it — the Focus agent grabs focus itself at type time.
-    Poll-based; safe to run in a background thread for slow apps (e.g. LibreOffice)."""
+    """Record the first *classifiable* new window (vs ``before``) as the working target, so a
+    follow-up command routes to it. Keeps polling past unclassifiable windows like splash screens
+    (LibreOffice shows one before its real document window). Does NOT focus it — the Focus agent
+    grabs focus itself at type time. Safe to run in a background thread for slow apps."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        new = _windows_dec() - before
-        if new:
-            set_target(sorted(new)[-1])
-            return
-        time.sleep(0.15)
+        for wid in sorted(_windows_dec() - before, reverse=True):
+            name, kind = _classify(wid)
+            if kind:
+                _TARGET.update(id=wid, name=name, kind=kind)
+                return
+        time.sleep(0.2)
 
 
 def _live_target() -> dict | None:

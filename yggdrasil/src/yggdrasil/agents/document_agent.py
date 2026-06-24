@@ -77,9 +77,10 @@ class DocumentsAgent(BaseAgent):
         return bool(os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY"))
 
     def _track_bg(self, before: set[str]) -> None:
-        # Office apps can take several seconds to map a window — track in the background so the
-        # spoken reply isn't delayed, while the target still gets set before the next command.
-        threading.Thread(target=track_new_window, args=(before, 8.0), daemon=True).start()
+        # Office apps can take several seconds to map a window (cold LibreOffice ~10s) — track in
+        # the background so the spoken reply isn't delayed, while the target still gets set before
+        # the next command.
+        threading.Thread(target=track_new_window, args=(before, 14.0), daemon=True).start()
 
     def _new(self) -> str:
         if not self._has_display():
