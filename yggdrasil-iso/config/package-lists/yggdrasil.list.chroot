@@ -1,9 +1,12 @@
-# --- NVIDIA driver (non-free); RTX 3060 / Ampere. Ollama needs only the driver; GPU Whisper
-# uses the pip nvidia-cu12 libs (installed by the app hook), so the 2GB cuda-toolkit is omitted. ---
-nvidia-driver
-nvidia-kernel-dkms
+# --- GPU support (hardware-agnostic) ---
+# We do NOT bake the proprietary NVIDIA driver. The open in-kernel drivers (nouveau/amdgpu/i915)
+# already give a working desktop on any GPU. First-boot detects the vendor and installs the right
+# proprietary driver on the actual machine (NVIDIA -> nvidia-driver), so the ISO boots everywhere
+# and the build needs no DKMS compile. We keep general firmware + headers + dkms so that first-boot
+# NVIDIA install is self-contained and the headers match the baked kernel.
 firmware-misc-nonfree
 linux-headers-amd64
+dkms
 
 # --- Python / app runtime ---
 python3
