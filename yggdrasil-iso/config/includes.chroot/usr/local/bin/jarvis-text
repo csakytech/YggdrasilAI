@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Typed assistant (same agents as voice; spoken replies if a voice model is set).
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+[ -f /etc/yggdrasil/model.env ] && . /etc/yggdrasil/model.env
+export YGGDRASIL_MODEL=${YGGDRASIL_MODEL:-qwen3:8b}
+export YGGDRASIL_VOICE_MODEL=${YGGDRASIL_VOICE_MODEL:-/opt/yggdrasil/voices/en_US-lessac-medium.onnx}
+exec /opt/yggdrasil/venv/bin/yggdrasil "$@"

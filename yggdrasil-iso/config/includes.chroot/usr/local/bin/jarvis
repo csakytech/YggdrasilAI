@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Voice assistant launcher (system-wide install). The app lives in /opt/yggdrasil with its venv;
+# the chosen model is written by first-boot to /etc/yggdrasil/model.env.
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+[ -f /etc/yggdrasil/model.env ] && . /etc/yggdrasil/model.env
+export YGGDRASIL_MODEL=${YGGDRASIL_MODEL:-qwen3:8b}
+export YGGDRASIL_VOICE_MODEL=${YGGDRASIL_VOICE_MODEL:-/opt/yggdrasil/voices/en_US-lessac-medium.onnx}
+VENV=/opt/yggdrasil/venv
+# GPU Whisper needs the pip-installed CUDA libs on the loader path (no-op if CPU-only).
+NV=$("$VENV/bin/python" -c "import nvidia.cublas as a, nvidia.cudnn as b, os; print(os.path.join(list(a.__path__)[0],'lib')+':'+os.path.join(list(b.__path__)[0],'lib'))" 2>/dev/null)
+[ -n "$NV" ] && export LD_LIBRARY_PATH="$NV${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "$VENV/bin/yggdrasil-voice" "$@"

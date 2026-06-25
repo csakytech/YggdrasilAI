@@ -1,0 +1,28 @@
+#!/bin/sh
+# Bake the Yggdrasil app into the image: clone the public repo, build a system venv with the full
+# voice stack, and fetch the Piper voice. Runs in the live-build chroot (needs network). The
+# launchers in /usr/local/bin point at /opt/yggdrasil/venv, so it works for any installed user.
+set -e
+echo "I: yggdrasil — installing app into /opt/yggdrasil"
+
+rm -rf /opt/yggdrasil
+git clone --depth 1 https://github.com/csakytech/YggdrasilAI.git /opt/yggdrasil
+
+# System venv. --system-site-packages so PyGObject (gi) from the distro is importable for the GTK UIs.
+python3 -m venv --system-site-packages /opt/yggdrasil/venv
+/opt/yggdrasil/venv/bin/pip install --no-cache-dir -U pip wheel
+/opt/yggdrasil/venv/bin/pip install --no-cache-dir -e "/opt/yggdrasil/yggdrasil[voice]"
+# GPU Whisper CUDA libs — non-fatal; the launcher only adds them to the loader path if present,
+# and STT falls back to CPU when they're absent.
+/opt/yggdrasil/venv/bin/pip install --no-cache-dir nvidia-cublas-cu12 nvidia-cudnn-cu12 || \
+    echo "W: CUDA libs not installed — STT will run on CPU"
+
+# Piper voice (en_US lessac, medium).
+mkdir -p /opt/yggdrasil/voices
+V="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium"
+curl -fsSL -o /opt/yggdrasil/voices/en_US-lessac-medium.onnx      "$V/en_US-lessac-medium.onnx"
+curl -fsSL -o /opt/yggdrasil/voices/en_US-lessac-medium.onnx.json "$V/en_US-lessac-medium.onnx.json"
+
+chmod -R a+rX /opt/yggdrasil
+mkdir -p /var/lib/yggdrasil
+echo "I: yggdrasil — app install complete ($(/opt/yggdrasil/venv/bin/python --version))"

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Jarvis Chat window (GTK). Venv has --system-site-packages so PyGObject (gi) is available.
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+[ -f /etc/yggdrasil/model.env ] && . /etc/yggdrasil/model.env
+export YGGDRASIL_MODEL=${YGGDRASIL_MODEL:-qwen3:8b}
+exec /opt/yggdrasil/venv/bin/python -m yggdrasil.ui.chat "$@"

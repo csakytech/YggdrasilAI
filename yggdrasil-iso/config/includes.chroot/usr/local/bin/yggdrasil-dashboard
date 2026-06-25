@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Live dashboard (GTK): active agents + system status.
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+[ -f /etc/yggdrasil/model.env ] && . /etc/yggdrasil/model.env
+export YGGDRASIL_MODEL=${YGGDRASIL_MODEL:-qwen3:8b}
+export YGGDRASIL_NAME=${YGGDRASIL_NAME:-Jarvis}
+export YGGDRASIL_TRUST=${YGGDRASIL_TRUST:-guarded}
+exec /opt/yggdrasil/venv/bin/python -m yggdrasil.ui.dashboard "$@"
