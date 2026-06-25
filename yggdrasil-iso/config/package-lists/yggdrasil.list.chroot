@@ -1,7 +1,7 @@
-# --- NVIDIA driver + CUDA (non-free); RTX 3060 / Ampere ---
+# --- NVIDIA driver (non-free); RTX 3060 / Ampere. Ollama needs only the driver; GPU Whisper
+# uses the pip nvidia-cu12 libs (installed by the app hook), so the 2GB cuda-toolkit is omitted. ---
 nvidia-driver
 nvidia-kernel-dkms
-nvidia-cuda-toolkit
 firmware-misc-nonfree
 linux-headers-amd64
 
