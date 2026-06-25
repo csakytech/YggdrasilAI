@@ -27,8 +27,9 @@
     real work done — opening apps, writing and editing documents, running commands — entirely on
     your own machine. No cloud. No tracking. Powered by Yggdrasil&nbsp;AI.</p>
     <div class="btnrow">
-      <a class="btn primary" href="#download">⬇ Download ISO</a>
-      <a class="btn ghost" href="https://github.com/csakytech/YggdrasilAI">★ View on GitHub</a>
+      <a class="btn primary" href="#" onclick="openDemo();return false;">▶ Watch Demo</a>
+      <a class="btn ghost" href="#download">⬇ Download ISO</a>
+      <a class="btn ghost" href="https://github.com/csakytech/YggdrasilAI">★ GitHub</a>
     </div>
   </div>
 </section>
@@ -92,6 +93,24 @@
        <a href="donate.html">Support</a> ·
        <a href="https://www.yggdrasilai.org">yggdrasilai.org</a></div>
 </div></footer>
+
+<!-- Watch Demo lightbox — preload="none" so the video only downloads when clicked -->
+<div id="demoModal" class="modal" onclick="if(event.target===this)closeDemo()">
+  <div class="modal-box">
+    <button class="modal-close" type="button" onclick="closeDemo()" aria-label="Close">&times;</button>
+    <video id="demoVideo" controls preload="none" playsinline poster="assets/wallpaper.png">
+      <source src="demo.mp4" type="video/mp4">
+      Your browser can't play this video. <a href="demo.mp4">Download it instead</a>.
+    </video>
+  </div>
+</div>
+<script>
+function openDemo(){document.getElementById('demoModal').classList.add('open');
+  document.getElementById('demoVideo').play().catch(function(){});}
+function closeDemo(){document.getElementById('demoModal').classList.remove('open');
+  document.getElementById('demoVideo').pause();}
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeDemo();});
+</script>
 
 </body>
 </html>
