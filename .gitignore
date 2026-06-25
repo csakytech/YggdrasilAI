@@ -19,6 +19,13 @@ yggdrasil-iso/chroot/
 yggdrasil-iso/binary/
 yggdrasil-iso/config/packages.chroot/*.deb
 
+# Demo recordings / video — keep out of the public repo (host on YouTube/Releases instead)
+*.mkv
+*.mp4
+*.mov
+*.webm
+*.avi
+
 # Scratch
 _whitepaper_extracted.txt
 
