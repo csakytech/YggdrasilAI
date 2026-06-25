@@ -190,7 +190,7 @@ def main() -> None:
 
     class VoiceChannel(UserChannel):
         async def present_challenge(self, ch: AuthChallenge) -> None:
-            spoken = " ".join(ch.code)  # "7 1 0 6 2 8" reads more clearly than "710628"
+            spoken = " ".join(ch.code)  # "4 8 2 9 1 7" reads more clearly than "482917"
             speaker.say(f"{ch.summary} requires authorization. Say, authorize {spoken}.")
 
     async def voice_auth_resolver(ch: AuthChallenge) -> str:

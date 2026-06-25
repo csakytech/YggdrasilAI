@@ -39,7 +39,7 @@ code. Results flow back and are spoken/printed.
 3. **Dispatch** — `bus.request("file", task)` routes to the agent registered for that domain.
 4. **Authorize** — the agent calls `PermissionManager.check`. Safe → proceed. Dangerous →
    a 6-digit code is minted and presented; the task is *parked, not executed*.
-5. **Confirm** — the user says/types `Authorize 710628`. The manager verifies (constant-time,
+5. **Confirm** — the user says/types `Authorize 482917`. The manager verifies (constant-time,
    single-use, TTL-bound) and issues a short-lived `auth_token` bound to that exact action.
    The orchestrator re-dispatches the task carrying the token; the agent now executes.
 6. **Respond** — a `Result` (OK / DENIED / TIMEOUT / ERROR) is rendered back to the user.
