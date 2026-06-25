@@ -228,9 +228,11 @@ class Orchestrator:
         try:
             return await self._handle(goal)
         except Exception as e:  # noqa: BLE001
-            import sys
-
             print(f"[orchestrator] error handling goal: {e!r}", file=sys.stderr)
+            msg = str(e).lower()
+            if any(s in msg for s in ("not found", "404", "connect", "refus", "no such model")):
+                return ("I'm still getting set up — my language model may still be downloading. "
+                        "Give me a few minutes, then try again.")
             return "Sorry, I hit a snag with that one. Please try again."
 
     async def _handle(self, goal: str) -> str:

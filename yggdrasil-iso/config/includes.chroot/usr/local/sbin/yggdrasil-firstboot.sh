@@ -44,11 +44,26 @@ fi
 echo "YGGDRASIL_MODEL=$MODEL" > /etc/yggdrasil/model.env
 log "VRAM=${VRAM}MiB vendor=${VENDOR} -> model=${MODEL}"
 
-# --- ensure Ollama is up, then pull the model (online edition; offline already bundled one) ---
+# --- ensure Ollama is up ---
 systemctl start ollama.service 2>/dev/null || true
 for _ in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
-ollama list 2>/dev/null | grep -q "${MODEL%%:*}" || ollama pull "$MODEL" \
-    || log "WARN: model pull failed (offline / no network?) — continuing"
 
-touch "$STAMP"
-log "first-boot setup complete"
+# --- pull the model if missing, with retries. network-online.target can fire before connectivity
+#     is actually usable, so wait for real internet and retry a few times. ---
+if ! ollama list 2>/dev/null | grep -q "${MODEL%%:*}"; then
+    for attempt in 1 2 3 4 5; do
+        for _ in $(seq 1 20); do curl -sf --max-time 5 https://registry.ollama.ai/ >/dev/null 2>&1 && break; sleep 3; done
+        log "pulling ${MODEL} (attempt ${attempt})…"
+        ollama pull "$MODEL" && break
+        log "pull failed; retrying in 30s…"; sleep 30
+    done
+fi
+
+# --- CRUCIAL: only mark first-boot done once the model is actually present, so a failed/interrupted
+#     pull retries on the next boot instead of leaving the assistant brainless forever. ---
+if ollama list 2>/dev/null | grep -q "${MODEL%%:*}"; then
+    touch "$STAMP"
+    log "first-boot complete — ${MODEL} is ready"
+else
+    log "model ${MODEL} not present yet — first-boot will retry on the next boot"
+fi
