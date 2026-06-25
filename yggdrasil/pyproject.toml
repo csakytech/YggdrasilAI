@@ -14,11 +14,16 @@ dependencies = [
 [project.optional-dependencies]
 # Installed on the Debian box for the real voice loop (Phase 1).
 voice = [
-    "openwakeword>=0.6",   # wake word (ships hey_jarvis + silero_vad bundled, no download)
     "faster-whisper>=1.0", # STT (CPU base.en; GPU large-v3-turbo optional)
     "piper-tts>=1.2",      # TTS
     "sounddevice>=0.4",    # mic capture / playback
     "numpy>=1.26",         # endpointing is energy-based (no PyTorch/webrtcvad needed)
+]
+# Optional: the classic openWakeWord wake mode. It pulls tflite-runtime, which has NO Python 3.13
+# wheel, so it's kept OUT of [voice]. The default "name" wake mode wakes on the spoken name via
+# Whisper STT and needs none of this (see core/config.py wake_mode).
+wakeword = [
+    "openwakeword>=0.4",
 ]
 dev = [
     "pytest>=8.0",

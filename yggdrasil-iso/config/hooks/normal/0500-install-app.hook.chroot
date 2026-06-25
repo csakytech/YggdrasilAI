@@ -12,10 +12,8 @@ git clone --depth 1 https://github.com/csakytech/YggdrasilAI.git /opt/yggdrasil
 python3 -m venv --system-site-packages /opt/yggdrasil/venv
 /opt/yggdrasil/venv/bin/pip install --no-cache-dir -U pip wheel
 /opt/yggdrasil/venv/bin/pip install --no-cache-dir -e "/opt/yggdrasil/yggdrasil[voice]"
-# GPU Whisper CUDA libs — non-fatal; the launcher only adds them to the loader path if present,
-# and STT falls back to CPU when they're absent.
-/opt/yggdrasil/venv/bin/pip install --no-cache-dir nvidia-cublas-cu12 nvidia-cudnn-cu12 || \
-    echo "W: CUDA libs not installed — STT will run on CPU"
+# Note: STT runs on CPU in the image (hardware-agnostic). The GPU Whisper CUDA libs are NVIDIA-only
+# and large, so they're not baked in; a future first-boot step can add them on NVIDIA machines.
 
 # Piper voice (en_US lessac, medium).
 mkdir -p /opt/yggdrasil/voices
