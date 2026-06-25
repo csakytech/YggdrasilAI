@@ -24,6 +24,8 @@ import sys
 import time
 from pathlib import Path
 
+from ..core import config
+
 SR = 16000
 BLOCK = 1280  # 80 ms frames — openWakeWord's expected input size
 DEF_WAKE_THRESHOLD = 0.5
@@ -43,6 +45,15 @@ def _wakeword_path(name: str) -> str:
     raise RuntimeError(f"wake word '{name}' not found in openWakeWord resources")
 
 
+def strip_wake_name(name: str, text: str) -> str | None:
+    """If ``text`` opens with the wake name (optionally after a 'hey'/'ok'), return the rest of the
+    request; otherwise None. Lets you say just the name — "Athena, open my doc" — or the name alone
+    (returns "")."""
+    rx = re.compile(r"^\s*(?:hey|hi|ok|okay|yo)?[\s,]*" + re.escape(name) + r"[\s,.:;!?-]*", re.I)
+    m = rx.match(text)
+    return text[m.end():].strip() if m else None
+
+
 class VoiceAssistant:
     """Owns the mic stream and the wake/endpoint logic. `on_text(text)` returns
     (reply, conversation_over)."""
@@ -50,7 +61,6 @@ class VoiceAssistant:
     def __init__(self, on_text, speaker, recognizer, greeting="Yggdrasil online.") -> None:
         import numpy as np
         import sounddevice as sd
-        from openwakeword.model import Model
 
         self.np, self.sd = np, sd
         self.on_text = on_text
@@ -59,9 +69,14 @@ class VoiceAssistant:
         self.greeting = greeting
         self.wake_threshold = float(os.environ.get("YGGDRASIL_WAKE_THRESHOLD", DEF_WAKE_THRESHOLD))
         self.vad_energy = float(os.environ.get("YGGDRASIL_VAD_ENERGY", DEF_VAD_ENERGY))
-        wakeword = os.environ.get("YGGDRASIL_WAKEWORD", "hey_jarvis")
-        self.wake = Model(wakeword_model_paths=[_wakeword_path(wakeword)])
-        self.wake_key = next(iter(self.wake.models.keys()))
+        self.wake_mode = config.get_wake_mode()  # "name" (say the name) | "model" (openWakeWord)
+        self.wake = self.wake_key = None
+        if self.wake_mode == "model":
+            from openwakeword.model import Model
+
+            wakeword = os.environ.get("YGGDRASIL_WAKEWORD", "hey_jarvis")
+            self.wake = Model(wakeword_model_paths=[_wakeword_path(wakeword)])
+            self.wake_key = next(iter(self.wake.models.keys()))
         self._stream = None
 
     def _read(self):
@@ -101,14 +116,18 @@ class VoiceAssistant:
 
     def run(self) -> None:
         self.speaker.say(self.greeting)
-        print("Listening for the wake word… say it, then your request. Ctrl-C to quit.", flush=True)
+        if self.wake_mode == "model":
+            print("Listening for the wake word… say it, then your request. Ctrl-C to quit.", flush=True)
+        else:
+            print(f'Listening — say "{config.get_name()}" to wake me, then your request. '
+                  "Ctrl-C to quit.", flush=True)
         while True:  # OUTER: (re)open the mic stream — recover if it ever breaks
             try:
                 with self.sd.InputStream(samplerate=SR, channels=1, dtype="int16",
                                          blocksize=BLOCK) as stream:
                     self._stream = stream
                     print("[mic] stream open", file=sys.stderr, flush=True)
-                    self._listen()
+                    self._listen_model() if self.wake_mode == "model" else self._listen_name()
             except KeyboardInterrupt:
                 raise
             except Exception as e:
@@ -116,7 +135,46 @@ class VoiceAssistant:
                       file=sys.stderr, flush=True)
                 time.sleep(1)
 
-    def _listen(self) -> None:
+    def _strip_name(self, text: str) -> str | None:
+        return strip_wake_name(config.get_name(), text)  # name read live so a rename takes effect now
+
+    def _listen_name(self) -> None:
+        """Name wake mode: transcribe each spoken utterance and act on it only if it opens with the
+        assistant's name. Say "Athena, open my doc" in one breath, or just "Athena" then your request."""
+        conversation_until = 0.0
+        while True:
+            try:
+                in_convo = time.time() < conversation_until
+                text = self.capture_text()  # waits for speech, transcribes; "" if none in ~4s
+                if not text:
+                    continue
+                if in_convo:
+                    command = text  # follow-up within the conversation window — no name needed
+                else:
+                    command = self._strip_name(text)
+                    if command is None:
+                        continue  # speech not addressed to us — ignore
+                    if not command:  # only the name was spoken
+                        self.speaker.say("Yes?")
+                        command = self.capture_text()
+                        if not command:
+                            conversation_until = 0.0
+                            continue
+                print(f"you (voice) > {command}", flush=True)
+                reply, over = self.on_text(command)
+                print(f"jarvis > {reply}", flush=True)
+                self.speaker.say(reply)
+                conversation_until = 0.0 if over else time.time() + CONVERSATION_WINDOW_S
+            except KeyboardInterrupt:
+                raise
+            except self.sd.PortAudioError:
+                raise  # bubble up so run() reopens the mic stream
+            except Exception as e:
+                print(f"[voice] recovered from: {e!r}", file=sys.stderr, flush=True)
+                conversation_until = 0.0
+                time.sleep(0.2)
+
+    def _listen_model(self) -> None:
         conversation_until = 0.0
         frames, peak, last_beat = 0, 0.0, time.time()
         while True:

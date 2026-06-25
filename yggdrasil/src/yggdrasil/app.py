@@ -15,6 +15,7 @@ from .agents.memory_agent import MemoryAgent
 from .agents.security_agent import SecurityAgent
 from .agents.system_agent import SystemAgent
 from .agents.writer_agent import WriterAgent
+from .core import config
 from .core.activity import Activity
 from .core.bus import LocalBus
 from .core.memory import MemoryStore
@@ -30,7 +31,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     set, uses the LLM planner + conversation; otherwise the no-model heuristic planner.
     """
     sandbox = Path(os.environ.get("YGGDRASIL_SANDBOX", Path.home() / "YggdrasilSandbox"))
-    name = os.environ.get("YGGDRASIL_NAME", "Jarvis")
+    name = config.get_name()
 
     bus = LocalBus()
     perms = PermissionManager(DefaultPolicy(), channel)

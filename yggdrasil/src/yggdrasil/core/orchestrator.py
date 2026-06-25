@@ -12,7 +12,7 @@ import sys
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable
 
-from . import trace
+from . import config, trace
 from .bus import Bus, Result, Status, Task
 from .focus import active_window
 from .llm import LLMProvider
@@ -167,6 +167,14 @@ _EXPLAIN_RE = re.compile(
     re.I,
 )
 
+# "Call yourself Athena" — rename the assistant (the name is also the wake word). Pre-checked so
+# it's reliable, and so the new name takes effect immediately.
+_RENAME_RE = re.compile(
+    r"^\s*(?:change your name to|call yourself|rename yourself to|set your name to|"
+    r"your name (?:is|will be)(?: now)?|from now on,?\s+(?:you'?re|your name is)|i'?ll call you)\s+(.+)$",
+    re.I,
+)
+
 _VERB_LABEL = {
     "run": "Running", "create_folder": "Creating", "create_file": "Creating",
     "write_file": "Writing", "append_file": "Updating", "read_file": "Reading",
@@ -231,6 +239,12 @@ class Orchestrator:
             self._publish("")
             task = Task(action="explain.why", agent="explain", params={"argument": ""})
             return self._render(task, await self._dispatch(task))
+        rn = _RENAME_RE.match(goal.strip())
+        if rn:  # "call yourself Athena" -> rename (the name is also the wake word)
+            self._publish("")
+            raw = re.sub(r"\b(please|thanks|thank you|now|okay|ok)\b", "", rn.group(1), flags=re.I)
+            new = config.set_name(raw)
+            return f"Okay — I'm {new} now. Just say “{new}” to get my attention."
         ctx = self.memory.context() if self.memory else ""
         self._publish("Thinking…")
         active = active_window()
@@ -270,7 +284,7 @@ class Orchestrator:
             return ("I'm not sure how to do that yet. I can create, list, open, or delete "
                     "folders, and remember things.")
         system = (
-            f"You are {self.assistant_name}, a friendly local voice assistant. Answer in one or "
+            f"You are {config.get_name()}, a friendly local voice assistant. Answer in one or "
             "two short sentences suitable to be spoken aloud. Do not use markdown or lists."
         )
         if ctx:
