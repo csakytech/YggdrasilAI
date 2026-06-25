@@ -28,9 +28,13 @@ pciutils
 git
 
 # --- Desktop control + GTK UIs + office automation (Yggdrasil agents) ---
-wmctrl           # window activation/close (Apps + focus tracking)
-xdotool          # keystroke injection + active-window detection (Focus agent)
-x11-utils        # xprop — focused-window WM_CLASS
-python3-gi       # PyGObject for the GTK dashboard/HUD/chat (also pulled by GNOME)
-gir1.2-gtk-3.0   # GTK3 typelib for the HUD + chat window
-python3-uno      # UNO bridge for the LibreOffice (Writer) deep-adapter agent
+# NOTE: live-build only strips whole-line comments — never put a # after a package name.
+# window activation/close, keystroke injection, focused-window class
+wmctrl
+xdotool
+x11-utils
+# PyGObject + GTK3 typelib for the dashboard / HUD / chat window
+python3-gi
+gir1.2-gtk-3.0
+# UNO bridge for the LibreOffice (Writer) deep-adapter agent
+python3-uno
