@@ -8,6 +8,21 @@ firmware-misc-nonfree
 linux-headers-amd64
 dkms
 
+# --- Network & device firmware (CRITICAL — list explicitly) ---
+# These MUST be named here, not left to live-build's auto-firmware: the bookworm live-build used in
+# WSL did NOT auto-include them and shipped v0.2 with no NIC firmware -> no network after install.
+# firmware-realtek = the common onboard wired NIC (RTL8111/8168); the rest cover common wifi/wired.
+firmware-realtek
+firmware-iwlwifi
+firmware-atheros
+firmware-brcm80211
+firmware-bnx2
+firmware-bnx2x
+firmware-libertas
+firmware-ti-connectivity
+firmware-sof-signed
+bluez-firmware
+
 # --- Python / app runtime ---
 python3
 python3-venv
