@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ThorOS Welcome
+Comment=First-boot getting-started window
+Exec=/usr/local/bin/yggdrasil-welcome
+Icon=help-about
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Phase=Applications

@@ -12,8 +12,11 @@ export HOME="${HOME:-/root}"
 
 STAMP=/var/lib/yggdrasil/.firstboot-done
 [ -f "$STAMP" ] && exit 0
-mkdir -p "$(dirname "$STAMP")" /etc/yggdrasil
+mkdir -p "$(dirname "$STAMP")" /etc/yggdrasil /run/yggdrasil
 log() { echo "yggdrasil-firstboot: $*"; }
+# Publish a human-readable status the Welcome window reads (/run is tmpfs, recreated each boot).
+setup_status() { echo "$*" > /run/yggdrasil/status 2>/dev/null; chmod 644 /run/yggdrasil/status 2>/dev/null || true; }
+setup_status "Starting first-time setup…"
 
 # --- detect GPU vendor (works with just the open drivers — no proprietary driver needed) ---
 GPU=$(lspci -nn 2>/dev/null | grep -iE 'vga|3d controller|display controller' | head -1)
@@ -43,6 +46,7 @@ apt-get update -y >/dev/null 2>&1 || true
 #     This is where the DKMS compile happens — on this machine, for this kernel, only if NVIDIA. ---
 if [ "$VENDOR" = nvidia ] && ! command -v nvidia-smi >/dev/null 2>&1; then
     log "NVIDIA GPU found — installing the proprietary driver (GPU active after the next reboot)…"
+    setup_status "Installing graphics driver (one-time)…"
     apt-get update -y >/dev/null 2>&1 && apt-get install -y nvidia-driver >/dev/null 2>&1 \
         || log "WARN: nvidia-driver install failed (no network?) — continuing on CPU"
 fi
@@ -70,10 +74,17 @@ for _ in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&
 # --- pull the model if missing, with retries. network-online.target can fire before connectivity
 #     is actually usable, so wait for real internet and retry a few times. ---
 if ! ollama list 2>/dev/null | grep -q "${MODEL%%:*}"; then
+    setup_status "Preparing to download your assistant…"
     for attempt in 1 2 3 4 5; do
         for _ in $(seq 1 20); do curl -sf --max-time 5 https://registry.ollama.ai/ >/dev/null 2>&1 && break; sleep 3; done
         log "pulling ${MODEL} (attempt ${attempt})…"
-        ollama pull "$MODEL" && break
+        # Stream ollama's progress (it uses \r) into the status file so the Welcome window shows a %.
+        ollama pull "$MODEL" 2>&1 | tr '\r' '\n' | while IFS= read -r line; do
+            case "$line" in
+                *%*) setup_status "Downloading your assistant — $(printf '%s' "$line" | grep -oE '[0-9]+%' | tail -1)" ;;
+            esac
+        done
+        ollama list 2>/dev/null | grep -q "${MODEL%%:*}" && break
         log "pull failed; retrying in 30s…"; sleep 30
     done
 fi
@@ -82,8 +93,10 @@ fi
 #     pull retries on the next boot instead of leaving the assistant brainless forever. ---
 if ollama list 2>/dev/null | grep -q "${MODEL%%:*}"; then
     touch "$STAMP"
+    setup_status "Ready"
     systemctl disable --now yggdrasil-firstboot.timer 2>/dev/null || true
     log "first-boot complete — ${MODEL} is ready"
 else
+    setup_status "Still downloading — will keep trying…"
     log "model ${MODEL} not present yet — the firstboot timer will retry in a few minutes"
 fi

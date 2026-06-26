@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# First-boot welcome / getting-started window (GTK). --force reopens it after it's been dismissed.
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+[ -f /etc/yggdrasil/model.env ] && . /etc/yggdrasil/model.env
+export YGGDRASIL_NAME=${YGGDRASIL_NAME:-Jarvis}
+exec /opt/yggdrasil/venv/bin/python -m yggdrasil.ui.welcome "$@"

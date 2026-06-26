@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Getting Started
+GenericName=ThorOS guide
+Comment=How to use your ThorOS assistant — what to say and what to do if something's not right
+Exec=/usr/local/bin/yggdrasil-welcome --force
+Icon=help-about
+Terminal=false
+Categories=System;Documentation;GTK;
+Keywords=help;guide;start;getting started;jarvis;assistant;readme;tips;
