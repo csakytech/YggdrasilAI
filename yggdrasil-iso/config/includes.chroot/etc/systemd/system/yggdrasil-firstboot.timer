@@ -1,0 +1,16 @@
+[Unit]
+Description=Retry Yggdrasil first-boot setup until the model is present
+ConditionPathExists=!/var/lib/yggdrasil/.firstboot-done
+
+[Timer]
+# Drives yggdrasil-firstboot.service: first run ~90s after boot (gives Ollama + the network
+# time to settle), then retries every few minutes until the service stamps itself done and
+# disables this timer. This is what survives a transient at-boot failure to pull the model —
+# the old single-shot service gave up after one burst and never tried again until reboot.
+OnBootSec=90s
+OnUnitInactiveSec=3min
+AccuracySec=30s
+Unit=yggdrasil-firstboot.service
+
+[Install]
+WantedBy=timers.target

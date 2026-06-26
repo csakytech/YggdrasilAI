@@ -7,7 +7,5 @@ ConditionPathExists=!/var/lib/yggdrasil/.firstboot-done
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/yggdrasil-firstboot.sh
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
+# No RemainAfterExit / no [Install]: yggdrasil-firstboot.timer drives this and retries every few
+# minutes until the model is pulled, so the unit must go inactive after each attempt.

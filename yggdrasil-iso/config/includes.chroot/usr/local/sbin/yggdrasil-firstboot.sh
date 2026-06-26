@@ -77,7 +77,8 @@ fi
 #     pull retries on the next boot instead of leaving the assistant brainless forever. ---
 if ollama list 2>/dev/null | grep -q "${MODEL%%:*}"; then
     touch "$STAMP"
+    systemctl disable --now yggdrasil-firstboot.timer 2>/dev/null || true
     log "first-boot complete — ${MODEL} is ready"
 else
-    log "model ${MODEL} not present yet — first-boot will retry on the next boot"
+    log "model ${MODEL} not present yet — the firstboot timer will retry in a few minutes"
 fi

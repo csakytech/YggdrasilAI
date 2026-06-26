@@ -4,7 +4,9 @@
 set -e
 
 chmod +x /usr/local/sbin/yggdrasil-firstboot.sh
-systemctl enable yggdrasil-firstboot.service
+# The TIMER drives first-boot and retries until the model is actually pulled (the service has no
+# [Install] of its own). Enabling the service directly is unnecessary — the timer triggers it.
+systemctl enable yggdrasil-firstboot.timer
 
 # Do NOT start the app at build time — first-boot decides the model tier first.
 systemctl disable yggdrasil.service 2>/dev/null || true
