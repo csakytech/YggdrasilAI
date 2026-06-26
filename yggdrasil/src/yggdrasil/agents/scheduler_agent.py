@@ -138,6 +138,9 @@ class SchedulerAgent(BaseAgent):
                 base = (now + dt.timedelta(days=int(spec.get("day_offset") or 0))).replace(
                     hour=int(hh or 9), minute=int(mm or 0), second=0, microsecond=0)
             fire = base - dt.timedelta(minutes=lead)
+            if fire <= now and not spec.get("in_minutes"):  # that time already passed today -> tomorrow
+                base += dt.timedelta(days=1)
+                fire = base - dt.timedelta(minutes=lead)
             if fire <= now:
                 return None
             job["next_run"] = fire.isoformat()
@@ -171,9 +174,16 @@ class SchedulerAgent(BaseAgent):
         t = nr.strftime("%I:%M %p").lstrip("0")
         rec = job["recurrence"]
         if rec == "once":
+            mins = (nr - dt.datetime.now()).total_seconds() / 60
+            if mins < 1.5:
+                return "in a moment"
+            if mins < 60:
+                n = max(1, round(mins))
+                return f"in {n} minute{'s' if n != 1 else ''}"
             today = dt.date.today()
-            day = ("today" if nr.date() == today else
-                   "tomorrow" if nr.date() == today + dt.timedelta(days=1) else nr.strftime("%A"))
+            if nr.date() == today:
+                return f"at {t}"
+            day = "tomorrow" if nr.date() == today + dt.timedelta(days=1) else nr.strftime("%A")
             return f"{day} at {t}"
         return {"weekdays": f"every weekday at {t}", "daily": f"every day at {t}",
                 "hourly": "every hour", "weekly": f"every {nr.strftime('%A')} at {t}"}.get(rec, f"at {t}")
