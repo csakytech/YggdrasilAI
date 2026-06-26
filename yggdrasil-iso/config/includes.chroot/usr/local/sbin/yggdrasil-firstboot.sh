@@ -20,6 +20,20 @@ case "$GPU" in
 esac
 log "GPU vendor: ${VENDOR} (${GPU:-none detected})"
 
+# --- Ensure the installed system can reach the Debian mirrors. The live installer often leaves
+#     sources.list pointing only at the CD-ROM, which makes `apt install` fail with "no installation
+#     candidate" for the NVIDIA driver below and for anything the user wants later (e.g. openssh). ---
+if ! grep -rhqs 'debian\.org' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null; then
+    cat > /etc/apt/sources.list <<EOF
+deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
+EOF
+    log "configured online apt sources (installer had left it CD-ROM only)"
+fi
+sed -i '/cdrom:/d' /etc/apt/sources.list 2>/dev/null || true
+apt-get update -y >/dev/null 2>&1 || true
+
 # --- NVIDIA only: install the proprietary driver for CUDA/Ollama (nouveau already drives display).
 #     This is where the DKMS compile happens — on this machine, for this kernel, only if NVIDIA. ---
 if [ "$VENDOR" = nvidia ] && ! command -v nvidia-smi >/dev/null 2>&1; then
