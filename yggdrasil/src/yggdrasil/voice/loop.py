@@ -273,11 +273,35 @@ def main() -> None:
     assistant = VoiceAssistant(on_text, speaker, recognizer, greeting=f"{name} online.")
     holder["a"] = assistant
     print(f"Sandbox: {file_agent.sandbox_root}")
+
+    # Background scheduler: fire due reminders + briefings even while idle. It speaks on its own
+    # thread (Speaker.say is locked) and runs briefings via its own research agent + event loop.
+    from ..core.scheduler import Runner, shared_schedule
+
+    _model = os.environ.get("YGGDRASIL_MODEL")
+    _research = None
+    if _model:
+        from ..agents.research_agent import ResearchAgent
+        from ..core.bus import LocalBus
+        from ..core.llm import OllamaProvider
+        from ..core.permissions import DefaultPolicy, PermissionManager
+        _research = ResearchAgent(LocalBus(), PermissionManager(DefaultPolicy(), VoiceChannel()),
+                                  OllamaProvider(_model))
+
+    def _briefing(query: str) -> str:
+        if _research is None:
+            return "Briefings need a language model."
+        return asyncio.run(_research._lookup(query))
+
+    runner = Runner(shared_schedule(), speak=speaker.say, briefing=_briefing)
+    runner.start()
+    print(f"[scheduler] {len(shared_schedule().list())} job(s) loaded")
     try:
         assistant.run()
     except KeyboardInterrupt:
         print()
     finally:
+        runner.stop()
         loop.run_until_complete(bus.close())
         loop.close()
 

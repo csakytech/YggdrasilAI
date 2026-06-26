@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 
@@ -49,6 +50,7 @@ class Speaker:
         self.player = player
         self._env = _audio_env()
         self._warned = False
+        self._lock = threading.Lock()  # the scheduler speaks from its own thread — serialize playback
 
     def synthesize(self, text: str, out_path) -> str:
         """Render text to a WAV file. Returns the path."""
@@ -70,25 +72,26 @@ class Speaker:
         text = (text or "").strip()
         if not text:
             return
-        wav = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
-                wav = tf.name
-            self.synthesize(text, wav)
-            subprocess.run(
-                [self.player, wav],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                env=self._env,
-            )
-        except (FileNotFoundError, subprocess.SubprocessError) as e:
-            if not self._warned:
-                print(f"[voice] TTS unavailable ({e}); continuing without speech.", file=sys.stderr)
-                self._warned = True
-        finally:
-            if wav:
-                try:
-                    os.unlink(wav)
-                except OSError:
-                    pass
+        with self._lock:
+            wav = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+                    wav = tf.name
+                self.synthesize(text, wav)
+                subprocess.run(
+                    [self.player, wav],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    env=self._env,
+                )
+            except (FileNotFoundError, subprocess.SubprocessError) as e:
+                if not self._warned:
+                    print(f"[voice] TTS unavailable ({e}); continuing without speech.", file=sys.stderr)
+                    self._warned = True
+            finally:
+                if wav:
+                    try:
+                        os.unlink(wav)
+                    except OSError:
+                        pass
