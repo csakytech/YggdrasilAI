@@ -175,7 +175,7 @@ class SchedulerAgent(BaseAgent):
         rec = job["recurrence"]
         if rec == "once":
             mins = (nr - dt.datetime.now()).total_seconds() / 60
-            if mins < 1.5:
+            if mins < 0.75:
                 return "in a moment"
             if mins < 60:
                 n = max(1, round(mins))
