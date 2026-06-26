@@ -190,6 +190,18 @@ _RESEARCH_RE = re.compile(
     re.I,
 )
 
+# "Remind me… / schedule… / every weekday at 9am…" -> the Scheduler agent (creates a reminder or a
+# recurring briefing). Checked before _RESEARCH_RE so "schedule the bitcoin report" schedules it
+# instead of looking it up once.
+_SCHEDULE_RE = re.compile(
+    r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?(?:"
+    r"remind me\b|set (?:a |an )?reminder\b|schedule\b|wake me\b|"
+    r"every (?:morning|day|night|evening|weekday|weekend|hour|other day|"
+    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b"
+    r")",
+    re.I,
+)
+
 _VERB_LABEL = {
     "run": "Running", "create_folder": "Creating", "create_file": "Creating",
     "write_file": "Writing", "append_file": "Updating", "read_file": "Reading",
@@ -262,6 +274,10 @@ class Orchestrator:
             raw = re.sub(r"\b(please|thanks|thank you|now|okay|ok)\b", "", rn.group(1), flags=re.I)
             new = config.set_name(raw)
             return f"Okay — I'm {new} now. Just say “{new}” to get my attention."
+        if _SCHEDULE_RE.match(goal.strip()):  # "remind me…" / "schedule…" / "every weekday at 9…"
+            self._publish("Scheduling…")
+            task = Task(action="schedule.add", agent="schedule", params={"argument": goal})
+            return self._render(task, await self._dispatch(task))
         if _RESEARCH_RE.match(goal.strip()):  # "price of bitcoin" / "weather in X" / "news on Y"
             self._publish("Looking that up…")
             task = Task(action="research.lookup", agent="research", params={"argument": goal})
