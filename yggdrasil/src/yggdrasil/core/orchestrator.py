@@ -175,6 +175,21 @@ _RENAME_RE = re.compile(
     re.I,
 )
 
+# Current-info questions ("price of bitcoin", "weather in Seattle", "news on Tesla") go to the
+# Research agent deterministically — the planner is flaky on these and might answer from stale model
+# knowledge or open a browser. Excludes "remember/open …" by requiring a lookup lead-in or a bare
+# "price of / weather in / news on X" shape.
+_RESEARCH_RE = re.compile(
+    r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?(?:"
+    r"(?:check|get me|look up|find out|tell me|what'?s|what is|how'?s|how is|how much (?:is|are))\b"
+    r".*\b(?:price|worth|value|cost|weather|forecast|temperature|news|headlines?|trading)\b"
+    r"|(?:the\s+)?(?:price|value) of \w+"
+    r"|weather (?:in|for|at|like in) \w+"
+    r"|news (?:on|about|regarding) \w+"
+    r")",
+    re.I,
+)
+
 _VERB_LABEL = {
     "run": "Running", "create_folder": "Creating", "create_file": "Creating",
     "write_file": "Writing", "append_file": "Updating", "read_file": "Reading",
@@ -247,6 +262,10 @@ class Orchestrator:
             raw = re.sub(r"\b(please|thanks|thank you|now|okay|ok)\b", "", rn.group(1), flags=re.I)
             new = config.set_name(raw)
             return f"Okay — I'm {new} now. Just say “{new}” to get my attention."
+        if _RESEARCH_RE.match(goal.strip()):  # "price of bitcoin" / "weather in X" / "news on Y"
+            self._publish("Looking that up…")
+            task = Task(action="research.lookup", agent="research", params={"argument": goal})
+            return self._render(task, await self._dispatch(task))
         ctx = self.memory.context() if self.memory else ""
         self._publish("Thinking…")
         active = active_window()
