@@ -75,6 +75,12 @@ class OllamaProvider(LLMProvider):
                 {"role": "user", "content": prompt},
             ],
         }
+        # Ollama 0.30+ surfaces qwen3-style chain-of-thought as a separate channel. The old
+        # ``/no_think`` prompt trick no longer disables it, so the model reasons before every reply —
+        # pure latency for our direct-answer prompts (and it can starve a length-capped response).
+        # Turn reasoning off natively for thinking-capable models (harmless/absent for others).
+        if any(t in self.model.lower() for t in ("qwen3", "qwq", "deepseek-r1")):
+            payload["think"] = False
         if schema is not None:
             payload["format"] = schema  # JSON-schema constrained decoding
 
