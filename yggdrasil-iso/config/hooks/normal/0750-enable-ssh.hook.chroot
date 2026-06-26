@@ -1,0 +1,14 @@
+#!/bin/sh
+# Ship a working SSH server, but make it SAFE to distribute as a single image:
+#   1. Strip the host keys generated when openssh-server was installed in the build chroot — otherwise
+#      every machine that boots this ISO (and every install made from it) would share identical host
+#      keys, which lets anyone on the path impersonate the box / decrypt sessions. A real risk.
+#   2. Regenerate unique host keys on first boot via regen-ssh-host-keys.service (runs before sshd).
+#
+# We do NOT bake in any authorized_keys — users add their own. No backdoors.
+set -e
+
+rm -f /etc/ssh/ssh_host_*
+
+systemctl enable ssh.service
+systemctl enable regen-ssh-host-keys.service

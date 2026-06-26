@@ -1,0 +1,17 @@
+[Unit]
+Description=Regenerate SSH host keys on first boot (so installs never share keys)
+# Only runs while host keys are absent — they are stripped from the image at build time and
+# this recreates unique ones on the very first boot, before sshd needs them.
+ConditionPathExists=!/etc/ssh/ssh_host_ed25519_key
+Before=ssh.service
+DefaultDependencies=no
+After=systemd-tmpfiles-setup.service
+Wants=systemd-tmpfiles-setup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

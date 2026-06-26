@@ -30,6 +30,12 @@ jq
 pciutils
 git
 
+# --- Remote access ---
+# SSH so installed machines are reachable on the LAN. Build-time host keys are stripped and
+# regenerated per-machine on first boot (hooks/0750 + regen-ssh-host-keys.service) so no two
+# ThorOS installs share the same host keys.
+openssh-server
+
 # --- Desktop control + GTK UIs + office automation (Yggdrasil agents) ---
 # NOTE: live-build only strips whole-line comments — never put a # after a package name.
 # window activation/close, keystroke injection, focused-window class
