@@ -12,6 +12,7 @@ from .agents.explain_agent import ExplainAgent
 from .agents.file_agent import FileAgent
 from .agents.focus_agent import FocusAgent
 from .agents.memory_agent import MemoryAgent
+from .agents.research_agent import ResearchAgent
 from .agents.security_agent import SecurityAgent
 from .agents.system_agent import SystemAgent
 from .agents.writer_agent import WriterAgent
@@ -58,6 +59,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(DocumentsAgent(bus, perms))
     registry.register(ExplainAgent(bus, perms, llm))
     registry.register(WriterAgent(bus, perms))
+    registry.register(ResearchAgent(bus, perms, llm))
     await registry.start_all()
 
     if llm:
