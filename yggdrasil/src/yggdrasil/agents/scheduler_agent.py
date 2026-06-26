@@ -7,6 +7,7 @@ the shared Schedule; the Runner in the voice service fires them. Managed by voic
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Any
 
 from ..core.permissions import Capability
@@ -125,6 +126,8 @@ class SchedulerAgent(BaseAgent):
         }
         if job["kind"] == "briefing" and not job["query"]:  # small model sometimes drops it
             job["query"] = job["label"] or request.strip()
+        if not job["time"] and not spec.get("in_minutes"):  # model dropped the clock time — recover it
+            job["time"] = SchedulerAgent._extract_time(request)
         if job["recurrence"] == "once":
             now = dt.datetime.now()
             lead = int(spec.get("lead_minutes") or 0)
@@ -139,11 +142,28 @@ class SchedulerAgent(BaseAgent):
                 return None
             job["next_run"] = fire.isoformat()
             if job["kind"] == "reminder" and not job["message"]:
-                job["message"] = f"Reminder: {job['label']}."
+                at = base.strftime("%I:%M %p").lstrip("0")
+                job["message"] = (f"Heads up — {job['label']} at {at}." if lead
+                                  else f"Reminder: {job['label']}.")
         else:
             nr = compute_next(job)
             job["next_run"] = nr.isoformat() if nr else None
         return job
+
+    @staticmethod
+    def _extract_time(text: str) -> str:
+        """Best-effort clock time from natural text -> 'HH:MM' (24h), '' if none."""
+        t = text.lower()
+        if "noon" in t:
+            return "12:00"
+        if "midnight" in t:
+            return "00:00"
+        m = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)", t)
+        if m:
+            h = int(m.group(1)) % 12 + (12 if m.group(3).startswith("p") else 0)
+            return f"{h:02d}:{int(m.group(2) or 0):02d}"
+        m = re.search(r"\b([01]?\d|2[0-3]):([0-5]\d)\b", t)
+        return f"{int(m.group(1)):02d}:{m.group(2)}" if m else ""
 
     @staticmethod
     def _when(job: dict) -> str:
