@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import time
@@ -23,7 +24,8 @@ from .base import BaseAgent
 
 _THINK = re.compile(r"<think>.*?</think>", re.S)
 
-# Friendly names → actual launch commands.
+# Friendly SYNONYMS only — layered on top of the system app database below, NOT a hard-coded list
+# of every program. "browser" → firefox, "word processor" → libreoffice, etc.
 _ALIASES = {
     "word editor": "libreoffice --writer", "word processor": "libreoffice --writer",
     "writer": "libreoffice --writer", "text editor": "gnome-text-editor",
@@ -36,6 +38,68 @@ _ALIASES = {
     "text chat": "yggdrasil-chat", "jarvis chat": "yggdrasil-chat",
     "settings": "gnome-control-center", "system settings": "gnome-control-center",
 }
+
+# Where the OS records every installed GUI app (the freedesktop .desktop database). Reading this is
+# how Jarvis launches ANY installed program by name without per-app code.
+_APP_DIRS = (
+    "/usr/share/applications",
+    "/usr/local/share/applications",
+    os.path.expanduser("~/.local/share/applications"),
+    "/var/lib/flatpak/exports/share/applications",
+    os.path.expanduser("~/.local/share/flatpak/exports/share/applications"),
+)
+
+
+def _clean_exec(exec_str: str) -> list[str] | None:
+    """A .desktop Exec= line → an argv, dropping the %-field codes (%U %F %i %c …)."""
+    try:
+        toks = shlex.split(exec_str)
+    except ValueError:
+        toks = exec_str.split()
+    argv = [t for t in toks if not t.startswith("%")]
+    return argv or None
+
+
+def _read_desktop_apps() -> list[dict]:
+    """Scan the .desktop database into launchable apps (skipping hidden / no-display entries)."""
+    apps: list[dict] = []
+    for d in _APP_DIRS:
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for fn in names:
+            if not fn.endswith(".desktop"):
+                continue
+            info: dict[str, str] = {}
+            in_entry = False
+            try:
+                with open(os.path.join(d, fn), encoding="utf-8", errors="ignore") as fh:
+                    for raw in fh:
+                        line = raw.rstrip("\n")
+                        if line.startswith("["):
+                            in_entry = line.strip() == "[Desktop Entry]"
+                            continue
+                        if not in_entry or "=" not in line or "[" in line.split("=", 1)[0]:
+                            continue  # other groups, or localized keys like Name[de]=
+                        k, _, v = line.partition("=")
+                        info[k.strip()] = v.strip()
+            except OSError:
+                continue
+            if info.get("Type", "Application") != "Application":
+                continue
+            if info.get("NoDisplay", "").lower() == "true" or info.get("Hidden", "").lower() == "true":
+                continue
+            argv = _clean_exec(info.get("Exec", ""))
+            if not argv:
+                continue
+            apps.append({
+                "id": fn[:-8],
+                "name": info.get("Name", fn[:-8]),
+                "argv": argv,
+                "extra": f"{info.get('GenericName', '')} {info.get('Keywords', '')}".lower(),
+            })
+    return apps
 
 
 class AppsAgent(BaseAgent):
@@ -113,6 +177,27 @@ class AppsAgent(BaseAgent):
                 return
             time.sleep(0.15)
 
+    def _resolve_app(self, key: str) -> tuple[list[str] | None, str | None]:
+        """Map a spoken app name to (argv, friendly label): friendly aliases first, then the
+        system's .desktop database (so ANY installed program resolves), then a bare binary on PATH.
+        Returns (None, None) when nothing matches — so the caller can be honest instead of pretending."""
+        if not key:
+            return None, None
+        if key in _ALIASES:
+            return _ALIASES[key].split(), key
+        apps = _read_desktop_apps()
+        for match in (  # exact name → substring either way → generic-name/keywords
+            lambda a: a["name"].lower() == key,
+            lambda a: key in a["name"].lower() or a["name"].lower() in key,
+            lambda a: key in a["extra"],
+        ):
+            for a in apps:
+                if match(a):
+                    return a["argv"], a["name"]
+        if shutil.which(key):
+            return [key], key
+        return None, None
+
     def _launch(self, name: str) -> str:
         if not name:
             return "Which application?"
@@ -121,17 +206,18 @@ class AppsAgent(BaseAgent):
         # Normalize phrasing: "the dashboard program" -> "dashboard"
         key = re.sub(r"\s+(program|app|application|window)$", "",
                      re.sub(r"^(the|my|a)\s+", "", name.lower().strip()))
-        parts = _ALIASES.get(key, key).split()
-        exe = shutil.which(parts[0])
+        argv, label = self._resolve_app(key)
+        if not argv:
+            return (f"I don't see an app called {name} installed — try the exact name, "
+                    "or ask me what apps are installed.")
         before = self._window_ids()
         try:
-            cmd = ([exe, *parts[1:]]) if exe else ["gtk-launch", parts[0]]
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self.last_app = key
+            subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.last_app = (label or key).lower()
         except Exception:
-            return f"I couldn't find an app called {name}."
+            return f"I couldn't open {name}."
         self._track_launched(before)  # so the next command routes to it
-        return f"Opening {name}."
+        return f"Opening {label or name}."
 
     def _close(self, name: str) -> str:
         key = name.lower().strip()
@@ -215,16 +301,9 @@ class AppsAgent(BaseAgent):
 
     @staticmethod
     def _list_apps() -> str:
-        apps: set[str] = set()
-        for d in ("/usr/share/applications", os.path.expanduser("~/.local/share/applications")):
-            try:
-                for f in os.listdir(d):
-                    if f.endswith(".desktop"):
-                        apps.add(f[:-8].split(".")[-1])
-            except OSError:
-                pass
-        sample = ", ".join(sorted(apps)[:12])
-        return f"You have about {len(apps)} apps installed, including: {sample}."
+        names = sorted({a["name"] for a in _read_desktop_apps()})
+        sample = ", ".join(names[:12])
+        return f"You have about {len(names)} apps installed, including: {sample}."
 
     async def _write_document(self, topic: str) -> dict:
         topic = topic or "a short note"
