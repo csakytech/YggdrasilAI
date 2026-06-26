@@ -180,7 +180,7 @@ _RENAME_RE = re.compile(
 # knowledge or open a browser. Excludes "remember/open …" by requiring a lookup lead-in or a bare
 # "price of / weather in / news on X" shape.
 _RESEARCH_RE = re.compile(
-    r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?(?:"
+    r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please |any |some |the latest )?(?:"
     r"(?:check|get me|look up|find out|tell me|what'?s|what is|how'?s|how is|how much (?:is|are))\b"
     r".*\b(?:price|worth|value|cost|weather|forecast|temperature|news|headlines?|trading)\b"
     r"|(?:the\s+)?(?:price|value) of \w+"
