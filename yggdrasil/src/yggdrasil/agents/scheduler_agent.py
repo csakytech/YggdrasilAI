@@ -70,7 +70,7 @@ class SchedulerAgent(BaseAgent):
         spec = await self._parse(request)
         if not spec:
             return "Sorry, I couldn't work out the timing for that."
-        job = self._to_job(spec)
+        job = self._to_job(spec, request)
         if job is None or not job.get("next_run"):
             return ("I couldn't figure out when to do that — try a clearer time, "
                     "like 'every weekday at 9am' or 'tomorrow at 1pm'.")
@@ -82,25 +82,38 @@ class SchedulerAgent(BaseAgent):
     async def _parse(self, request: str) -> dict | None:
         now = dt.datetime.now()
         system = (
-            "You convert a scheduling request into JSON for an assistant named Jarvis. "
-            f"Right now it is {now:%A %Y-%m-%d %H:%M} local time. "
-            "For a RECURRING request set recurrence to daily, weekdays, weekly or hourly and time to a "
-            "24-hour HH:MM (for weekly also set weekday mon..sun). For a ONE-OFF set recurrence 'once' "
-            "and EITHER day_offset (0=today, 1=tomorrow, 2=...) with time HH:MM, OR in_minutes for "
-            "'in N minutes/hours'. If they want reminding BEFORE an event, set lead_minutes "
-            "('an hour before' = 60). Use kind 'briefing' for things to look up (price, weather, news) "
-            "and set query to a short web query like 'price of bitcoin'; otherwise kind 'reminder' and "
-            "set message to the full natural sentence Jarvis should SAY when it fires. label is a short "
-            "name. /no_think"
+            "Convert the scheduling request into JSON. "
+            f"Current time: {now:%A %Y-%m-%d %H:%M} local.\n"
+            "Examples:\n"
+            'request: "the bitcoin report every weekday at 9am"\n'
+            'json: {"label":"bitcoin report","kind":"briefing","query":"price of bitcoin",'
+            '"recurrence":"weekdays","time":"09:00"}\n'
+            'request: "every morning at 8 give me the weather in denver"\n'
+            'json: {"label":"denver weather","kind":"briefing","query":"weather in denver",'
+            '"recurrence":"daily","time":"08:00"}\n'
+            'request: "remind me to call mom at 5pm"\n'
+            'json: {"label":"call mom","kind":"reminder","message":"Reminder to call mom.",'
+            '"recurrence":"once","day_offset":0,"time":"17:00"}\n'
+            'request: "meeting with mom tomorrow at 1pm, remind me an hour before"\n'
+            'json: {"label":"meeting with mom","kind":"reminder",'
+            '"message":"Your meeting with mom is in an hour, at 1 PM.",'
+            '"recurrence":"once","day_offset":1,"time":"13:00","lead_minutes":60}\n'
+            'request: "remind me to take my pills in 2 hours"\n'
+            'json: {"label":"pills","kind":"reminder","message":"Reminder to take your pills.",'
+            '"recurrence":"once","in_minutes":120}\n'
+            "Rules: weekdays = Monday–Friday. ALWAYS set time as HH:MM 24-hour unless using in_minutes. "
+            "For kind briefing ALWAYS set query to a short web search. day_offset 0=today, 1=tomorrow. "
+            "Use lead_minutes for 'before' reminders. /no_think"
         )
         try:
-            resp = await self.llm.generate(system=system, prompt=request, schema=_SCHEMA, temperature=0.1)
+            resp = await self.llm.generate(system=system, prompt=f'request: "{request}"\njson:',
+                                           schema=_SCHEMA, temperature=0.0)
             return resp.parsed if isinstance(resp.parsed, dict) else None
         except Exception:
             return None
 
     @staticmethod
-    def _to_job(spec: dict) -> dict | None:
+    def _to_job(spec: dict, request: str = "") -> dict | None:
         job = {
             "label": (spec.get("label") or "reminder").strip(),
             "kind": spec.get("kind", "reminder"),
@@ -110,6 +123,8 @@ class SchedulerAgent(BaseAgent):
             "time": (spec.get("time") or "").strip(),
             "weekday": (spec.get("weekday") or "").strip().lower()[:3],
         }
+        if job["kind"] == "briefing" and not job["query"]:  # small model sometimes drops it
+            job["query"] = job["label"] or request.strip()
         if job["recurrence"] == "once":
             now = dt.datetime.now()
             lead = int(spec.get("lead_minutes") or 0)
