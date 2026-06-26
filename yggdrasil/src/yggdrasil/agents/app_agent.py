@@ -139,16 +139,39 @@ class AppsAgent(BaseAgent):
             key = self.last_app
         if not key:
             return "Close what?"
-        proc = os.path.basename(_ALIASES.get(key, key).split()[0])
-        try:  # graceful window close (X11), best-effort
-            subprocess.run(["wmctrl", "-c", key], capture_output=True, timeout=5)
+        alias = _ALIASES.get(key, key)
+        # Terms to match against a window's class+title (e.g. "dashboard" -> {dashboard, yggdrasil},
+        # since the dashboard's WM_CLASS is org.yggdrasil.Dashboard).
+        terms = [t for t in re.split(r"[\s.\-]+", f"{key} {alias}".lower()) if len(t) >= 3 and t != "the"]
+        closed = False
+
+        # 1) Close matching windows by id (graceful) — robust regardless of the process name.
+        try:
+            for line in subprocess.run(["wmctrl", "-lx"], capture_output=True, text=True,
+                                       timeout=5).stdout.splitlines():
+                parts = line.split(None, 4)
+                if len(parts) < 3:
+                    continue
+                hay = (parts[2] + " " + (parts[4] if len(parts) > 4 else "")).lower()
+                if any(t in hay for t in terms):
+                    subprocess.run(["wmctrl", "-i", "-c", parts[0]], capture_output=True, timeout=5)
+                    closed = True
         except Exception:
             pass
-        try:
-            r = subprocess.run(["pkill", "-f", proc], capture_output=True, timeout=5)
-        except Exception:
-            return f"I couldn't close {key}."
-        if r.returncode == 0:
+
+        # 2) Fallback: kill by process name. Try the launcher, the `python -m yggdrasil.ui.X` module
+        #    form (our GUIs), and the bare name — fixes "yggdrasil-dashboard" vs "yggdrasil.ui.dashboard".
+        if not closed:
+            proc = os.path.basename(alias.split()[0])
+            for pat in dict.fromkeys([proc, proc.replace("yggdrasil-", "ui."), key]):
+                try:
+                    if subprocess.run(["pkill", "-f", pat], capture_output=True, timeout=5).returncode == 0:
+                        closed = True
+                        break
+                except Exception:
+                    pass
+
+        if closed:
             if self.last_app == key:
                 self.last_app = None
             return f"Closed {key}."
