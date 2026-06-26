@@ -5,6 +5,11 @@
 # edition). Keep the tiers in sync with core/llm.py MODEL_TIERS.
 set -uo pipefail
 
+# systemd services run with NO $HOME, but the Ollama CLI reads ~/.ollama at startup and PANICS
+# ("$HOME is not defined") on every `ollama pull`/`ollama list` if it's unset — this silently broke
+# the model download on first boot. Define it explicitly.
+export HOME="${HOME:-/root}"
+
 STAMP=/var/lib/yggdrasil/.firstboot-done
 [ -f "$STAMP" ] && exit 0
 mkdir -p "$(dirname "$STAMP")" /etc/yggdrasil
