@@ -1,0 +1,93 @@
+# =============================================================================
+#  ThorOS agent packet — manifest.toml
+# =============================================================================
+# This file IS the contract. ThorOS shows it to the user at install time (in plain
+# language) and ENFORCES the [permissions] block at runtime — a community agent runs
+# sandboxed and can only do what it declares here and the user approved. So: declare
+# the LEAST you need. Asking for more makes the install scarier and the review harder.
+#
+# A packet is this manifest + the agent code + (optional) assets + a signature.
+
+[agent]
+id          = "yourname.notes-example"      # globally unique, namespaced "author.name". Lowercase.
+name        = "Quick Notes"                 # display name in the marketplace + dashboard
+version     = "0.1.0"                        # semver — bump on every release
+summary     = "Jot and read back quick notes by voice."   # one line (shown in search)
+description = """
+A tiny example agent: say "make a note ..." and it saves it; "read my notes" reads them back.
+Use it as the starting point for your own agent — copy this folder and replace the logic.
+"""
+author      = "yourname"
+license     = "MIT"                          # SPDX id — must be an OSI-approved open licence
+homepage    = "https://github.com/yourname/thoros-notes-agent"
+sponsor     = "https://github.com/sponsors/yourname"      # optional — tip jar, not a paywall
+icon        = "icon.png"                     # optional, packaged alongside the manifest
+tags        = ["productivity", "example"]
+
+# --- Routing -----------------------------------------------------------------
+# The planner routes "<domain>.<verb>" to this agent. Pick a clear, single domain.
+# Only ONE agent per domain can be *active* in a profile, so don't squat a common name.
+[routing]
+domain = "notes"
+# Teach the local LLM which phrasings belong to you (few-shot — small models need examples).
+planner_examples = [
+  'make a note to buy milk -> {"steps":[{"action":"notes.add","argument":"buy milk"}]}',
+  'read my notes -> {"steps":[{"action":"notes.list","argument":""}]}',
+  'summarize my notes -> {"steps":[{"action":"notes.summarize","argument":""}]}',
+  'clear my notes -> {"steps":[{"action":"notes.clear","argument":""}]}',
+]
+
+# --- Capabilities ------------------------------------------------------------
+# The verbs your agent exposes. Each must map to handling in _execute().
+# dangerous = true  -> gated behind the user's authorization code before it runs.
+[[capability]]
+name = "add"
+description = "Save a quick note"
+dangerous = false
+
+[[capability]]
+name = "list"
+description = "Read your notes back"
+dangerous = false
+
+[[capability]]
+name = "summarize"
+description = "Summarize your notes with the local model"
+dangerous = false
+
+[[capability]]
+name = "clear"
+description = "Delete ALL of your notes"
+dangerous = true        # destructive -> requires the user to authorize it
+
+# --- Permissions (THE security contract — declared, shown, enforced) ---------
+# Every agent automatically gets a PRIVATE data directory (no permission needed) at
+# ~/.local/share/yggdrasil/modules/<id>/. This example only uses that, so it needs
+# nothing below. Uncomment only what your agent genuinely requires.
+[permissions]
+# filesystem_read  = ["~/Pictures/**"]      # globs of the USER's files you may read
+# filesystem_write = ["~/Pictures/**"]      # ...and write
+network          = []                        # domains you may reach; [] = offline-only
+# network        = ["api.example.com"]      # e.g. an agent that calls one API
+run_commands     = []                        # shell binaries you may launch
+# run_commands   = ["gimp", "gimp-console"] # e.g. a GIMP control agent
+controls_apps    = []                        # apps you drive (for the consent screen + deps)
+# controls_apps  = ["gimp"]
+
+# --- Dependencies ------------------------------------------------------------
+[dependencies]
+thoros_api = ">=1.0"     # the yggdrasil.sdk API version you build against
+python     = []           # pip packages your code imports (pinned); installed into an isolated venv
+# python   = ["pillow>=10"]
+system     = []           # apt packages needed; the installer can offer to add them
+# system   = ["gimp"]
+
+# --- Entry point -------------------------------------------------------------
+# The module file (in this packet) and the Agent subclass to load.
+[entrypoint]
+module = "notes_agent"    # -> notes_agent.py
+class  = "NotesAgent"
+
+# --- Trust (filled by the marketplace, NOT the author) -----------------------
+# tier: "community" (default, sandboxed, unreviewed) | "verified" | "official".
+# The registry appends the review status + signature here; authors leave it out.
