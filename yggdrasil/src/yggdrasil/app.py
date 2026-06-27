@@ -62,6 +62,14 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(WriterAgent(bus, perms))
     registry.register(ResearchAgent(bus, perms, llm))
     registry.register(SchedulerAgent(bus, perms, llm))
+
+    # Installed marketplace agents. In-process for now (trusted/verified only — the sandbox lands
+    # before untrusted packets). Core domains are reserved so a packet can't hijack 'file'/'system'/…
+    from .core import modules
+    reserved = {a.domain for a in registry.agents}
+    for agent in modules.load_installed(bus, perms, llm, reserved_domains=reserved):
+        registry.register(agent)
+
     await registry.start_all()
 
     if llm:
