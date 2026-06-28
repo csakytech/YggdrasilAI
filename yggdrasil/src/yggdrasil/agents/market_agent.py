@@ -153,7 +153,7 @@ class MarketAgent(BaseAgent):
 
     @staticmethod
     def _short_name(entry):
-        return (entry.get("name") or entry.get("id", "")).split()[0].lower()
+        return (entry.get("name") or entry.get("id", "")).lower()
 
     @staticmethod
     def _join(items):
