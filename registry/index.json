@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "updated": "2026-06-27",
+  "note": "ThorOS marketplace catalog. Each entry points to a signed packet .zip. 'tier' is set by the Thor team: verified/official = reviewed + signed; community = automated-checks + sandboxed.",
+  "agents": [
+    {
+      "id": "yourname.notes-example",
+      "name": "Quick Notes",
+      "summary": "jot and read back quick notes by voice",
+      "version": "0.1.0",
+      "author": "yourname",
+      "tier": "verified",
+      "tags": ["productivity", "notes", "example"],
+      "packet": "packets/yourname.notes-example.zip",
+      "consent": {
+        "permissions": ["use only its own private storage"],
+        "dangerous": ["delete all your notes"]
+      }
+    }
+  ]
+}

@@ -11,6 +11,7 @@ from .agents.document_agent import DocumentsAgent
 from .agents.explain_agent import ExplainAgent
 from .agents.file_agent import FileAgent
 from .agents.focus_agent import FocusAgent
+from .agents.market_agent import MarketAgent
 from .agents.memory_agent import MemoryAgent
 from .agents.research_agent import ResearchAgent
 from .agents.scheduler_agent import SchedulerAgent
@@ -62,6 +63,8 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(WriterAgent(bus, perms))
     registry.register(ResearchAgent(bus, perms, llm))
     registry.register(SchedulerAgent(bus, perms, llm))
+    market = MarketAgent(bus, perms, llm)
+    registry.register(market)
 
     # Installed marketplace agents. In-process for now (trusted/verified only — the sandbox lands
     # before untrusted packets). Core domains are reserved so a packet can't hijack 'file'/'system'/…
@@ -80,6 +83,19 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
         )
     else:
         planner = HeuristicPlanner()
+
+    # When the Market agent installs/removes, hot-load the change into the live registry + planner so
+    # the new agent is usable immediately (LLMPlanner reads allowed_actions/examples on every plan()).
+    async def _reload_modules():
+        have = {a.domain for a in registry.agents}
+        for ag in modules.load_installed(bus, perms, llm, reserved_domains=reserved):
+            if ag.domain not in have:
+                registry.register(ag)
+                await ag.start()
+        if hasattr(planner, "allowed_actions"):
+            planner.allowed_actions = registry.allowed_actions()
+            planner.examples = registry.planner_examples()
+    market.on_change = _reload_modules
 
     orch = Orchestrator(bus, perms, planner, auth_resolver, memory=store, llm=llm,
                         assistant_name=name, activity=Activity())

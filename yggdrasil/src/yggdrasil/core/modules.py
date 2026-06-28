@@ -13,11 +13,15 @@ lands (bubblewrap + a mediated bus API). This is deliberately the engine for the
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import shutil
 import sys
+import tempfile
 import tomllib
+import urllib.request
+import zipfile
 from pathlib import Path
 
 ALLOW_UNTRUSTED = False  # flip only once the sandbox exists; gates loading community-tier packets
@@ -104,6 +108,56 @@ def remove(mid: str) -> bool:
     shutil.rmtree(modules_dir() / mid, ignore_errors=True)
     _index_del(mid)
     return existed
+
+
+# --- registry client: the catalog the VOICE + GUI installers browse and install from ---
+# Override per-deployment with YGGDRASIL_REGISTRY. Default is the project catalog over HTTPS; packets
+# are signed for integrity (TLS is not the trust anchor), so a mirror/GitHub index works too.
+DEFAULT_REGISTRY = os.environ.get("YGGDRASIL_REGISTRY", "https://www.yggdrasilai.org/registry")
+
+
+def fetch_index(base_url: str | None = None) -> list[dict]:
+    """Fetch the marketplace catalog (index.json) and return its list of agent entries."""
+    base = (base_url or DEFAULT_REGISTRY).rstrip("/")
+    with urllib.request.urlopen(base + "/index.json", timeout=10) as r:
+        data = json.loads(r.read().decode("utf-8"))
+    return data.get("agents", []) if isinstance(data, dict) else data
+
+
+def search_registry(query: str = "", base_url: str | None = None) -> list[dict]:
+    """Catalog entries matching a free-text query over id / name / summary / tags."""
+    q = (query or "").lower().strip()
+    out = []
+    for e in fetch_index(base_url):
+        if not q:
+            out.append(e)
+            continue
+        hay = " ".join([e.get("id", ""), e.get("name", ""), e.get("summary", ""),
+                        " ".join(e.get("tags", []))]).lower()
+        if q in hay:
+            out.append(e)
+    return out
+
+
+def install_from_registry(entry: dict, base_url: str | None = None) -> dict:
+    """Download the packet (a .zip) named by a catalog entry and install it. Returns the manifest."""
+    base = (base_url or DEFAULT_REGISTRY).rstrip("/")
+    packet = entry.get("packet") or ""
+    url = packet if packet.startswith("http") else base + "/" + packet.lstrip("/")
+    with urllib.request.urlopen(url, timeout=30) as r:
+        blob = r.read()
+    with tempfile.TemporaryDirectory() as td:
+        with zipfile.ZipFile(io.BytesIO(blob)) as z:
+            z.extractall(td)
+        return install(_find_manifest_root(Path(td)))
+
+
+def _find_manifest_root(base: Path) -> Path:
+    if (base / "manifest.toml").is_file():
+        return base
+    for p in base.rglob("manifest.toml"):
+        return p.parent
+    raise ValueError("downloaded packet has no manifest.toml")
 
 
 def load_installed(bus, perms, llm=None, reserved_domains=()) -> list:

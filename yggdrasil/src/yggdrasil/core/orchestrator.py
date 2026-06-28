@@ -202,6 +202,43 @@ _SCHEDULE_RE = re.compile(
     re.I,
 )
 
+# Marketplace voice flow -> the Market agent. Routed deterministically (the planner is unreliable on
+# these meta-commands). Install/remove/browse REQUIRE the word "agent"/"module"/"marketplace" so they
+# never collide with installing an app (the future Software agent) or with general yes/no in chat.
+_MKT_CONFIRM = re.compile(
+    r"^\s*(?:yes|yeah|yep|sure|okay|ok|confirm|go ahead|do it|please do|absolutely)\b"
+    r".*\b(?:install|remove|uninstall)\b", re.I)
+_MKT_CANCEL = re.compile(r"^\s*(?:cancel|never ?mind|forget it|don'?t (?:install|remove))\b", re.I)
+_MKT_REMOVE = re.compile(r"\b(?:remove|uninstall|delete)\s+(?:the\s+)?(.+?)\s+(?:agent|module)s?\b", re.I)
+_MKT_INSTALL = re.compile(r"\b(?:install|add|download|set up|get)\s+(?:the\s+|an?\s+)?(.+?)\s+(?:agent|module)s?\b", re.I)
+_MKT_INSTALLED = re.compile(
+    r"\b(?:installed|my)\s+(?:agent|module)s?\b|\bwhat (?:agent|module)s? do i have\b"
+    r"|\b(?:agent|module)s? (?:i have|i've) installed\b", re.I)
+_MKT_BROWSE = re.compile(r"\b(?:agent|module)s?\b", re.I)
+_MKT_BROWSE_CUE = re.compile(r"\b(?:what|which|list|show|browse|search|find|are there|available|marketplace|market)\b", re.I)
+
+
+def _market_route(goal: str):
+    """Classify a marketplace command into (verb, argument), or None if it isn't one."""
+    g = goal.strip()
+    gl = g.lower()
+    if _MKT_CONFIRM.match(g):
+        return ("confirm", "")
+    if _MKT_CANCEL.match(g):
+        return ("cancel", "")
+    m = _MKT_REMOVE.search(g)
+    if m:
+        return ("remove", m.group(1).strip())
+    m = _MKT_INSTALL.search(g)
+    if m:
+        return ("install", m.group(1).strip())
+    if _MKT_INSTALLED.search(g):
+        return ("installed", "")
+    if "marketplace" in gl or (_MKT_BROWSE.search(gl) and _MKT_BROWSE_CUE.search(gl)):
+        fm = re.search(r"\bfor\s+(.+)$", gl)
+        return ("search", fm.group(1).strip(" .?") if fm else "")
+    return None
+
 _VERB_LABEL = {
     "run": "Running", "create_folder": "Creating", "create_file": "Creating",
     "write_file": "Writing", "append_file": "Updating", "read_file": "Reading",
@@ -274,6 +311,12 @@ class Orchestrator:
             raw = re.sub(r"\b(please|thanks|thank you|now|okay|ok)\b", "", rn.group(1), flags=re.I)
             new = config.set_name(raw)
             return f"Okay — I'm {new} now. Just say “{new}” to get my attention."
+        mkt = _market_route(goal)  # "install the X agent" / "what agents are available" / "yes install it"
+        if mkt:
+            verb, arg = mkt
+            self._publish("Marketplace…")
+            task = Task(action=f"market.{verb}", agent="market", params={"argument": arg})
+            return self._render(task, await self._dispatch(task))
         if _SCHEDULE_RE.match(goal.strip()):  # "remind me…" / "schedule…" / "every weekday at 9…"
             self._publish("Scheduling…")
             task = Task(action="schedule.add", agent="schedule", params={"argument": goal})
