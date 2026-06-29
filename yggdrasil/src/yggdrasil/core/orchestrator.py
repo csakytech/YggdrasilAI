@@ -426,7 +426,10 @@ class Orchestrator:
             caps = "Skills you can actually run (action ids): " + ", ".join(sorted(acts)) + ".\n"
         system = (
             f"You are {config.get_name()}, a capable local voice assistant, and your job is to help to "
-            "the maximum. The request below was not handled by a specific skill. RULES: never give a "
+            "the maximum. The request below was not handled by a specific skill. SAFETY FIRST: never give "
+            "instructions that could destroy data, damage the system, or harm someone (e.g. wiping a disk, "
+            "deleting system files, dd/mkfs on a drive) — briefly decline that specific part and offer a "
+            "safe alternative instead. RULES: never give a "
             "dead-end answer like 'I can't' or 'please try again' and stop. Always do ONE of: (1) answer "
             "it directly if it's a question; (2) if it maps to one of your skills, tell the user the "
             "simple thing to say to trigger it; (3) if it isn't possible yet, say so honestly in one "
