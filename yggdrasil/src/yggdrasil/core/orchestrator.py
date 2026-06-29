@@ -161,6 +161,17 @@ _PRONOUN_GOAL = re.compile(
 )
 _THINK = re.compile(r"<think>.*?</think>", re.S)  # strip qwen3 reasoning if it leaks
 
+# Hard safety backstop: catastrophic intent (wipe the disk, delete all my files, rm -rf /) gets a fixed
+# refusal and NEVER reaches the model — an LLM instruction must not be the only thing between the user
+# and a "how to destroy your system" answer. Tuned to whole-system / whole-account scope, so "delete the
+# files in this folder" still works.
+_DANGER_RE = re.compile(
+    r"\b(?:erase|wipe|format|reformat|destroy|nuke)\b[\w\s]*\b(?:hard ?drive|disk|drive|"
+    r"entire (?:system|computer)|the system|operating system|my computer)\b"
+    r"|\b(?:delete|remove|erase|wipe)\b[\w\s]*\ball (?:my|the) (?:files|data)\b"
+    r"|\brm\s+-rf\s*(?:/(?:\s|$)|~|\*|\$HOME)",
+    re.I)
+
 # "Why did you do that?" is a meta-question about my own last action. Route it deterministically
 # to the Explain agent rather than trusting the planner (which is flaky on these). Tuned to NOT
 # catch general questions like "why is the sky blue" or "explain photosynthesis".
@@ -334,6 +345,11 @@ class Orchestrator:
 
     async def _handle(self, goal: str) -> str:
         goal = self._rewrite_pronouns(goal)
+        if _DANGER_RE.search(goal):  # catastrophic intent -> hard refusal, never reaches the model
+            self._publish("")
+            return ("I won't help erase or destroy your drive, files, or system — that's irreversible and "
+                    "could break your machine. If you genuinely need to wipe a disk or reinstall, do that "
+                    "deliberately yourself, with backups — not by voice.")
         if _EXPLAIN_RE.match(goal.strip()):  # "why did you…" -> explain my last action, reliably
             self._publish("")
             task = Task(action="explain.why", agent="explain", params={"argument": ""})
