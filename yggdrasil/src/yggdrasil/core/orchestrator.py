@@ -360,9 +360,12 @@ class Orchestrator:
                         or task.params.get("text") or ""),
                 "status": result.status.name,
             })
-            if result.status is Status.OK:
+            # An agent can return OK but flag `assist` ("I ran, but couldn't really help") — e.g. a
+            # launch request that isn't a real app. Treat that as not-handled so the backbone steps in.
+            wants_assist = isinstance(result.data, dict) and result.data.get("assist")
+            if result.status is Status.OK and not wants_assist:
                 any_ok = True
-            else:
+            if result.status is not Status.OK:
                 ok = False
                 denied = denied or result.status is Status.DENIED
             replies.append(self._render(task, result))

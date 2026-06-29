@@ -136,7 +136,8 @@ class AppsAgent(BaseAgent):
 
     async def _execute(self, verb: str, params: dict[str, Any]) -> Any:
         if verb == "launch":
-            return {"speech": self._launch((params.get("argument") or "").strip())}
+            r = self._launch((params.get("argument") or "").strip())
+            return r if isinstance(r, dict) else {"speech": r}
         if verb == "close":
             return {"speech": self._close((params.get("argument") or "").strip())}
         if verb == "browse":
@@ -208,8 +209,9 @@ class AppsAgent(BaseAgent):
                      re.sub(r"^(the|my|a)\s+", "", name.lower().strip()))
         argv, label = self._resolve_app(key)
         if not argv:
-            return (f"I don't see an app called {name} installed — try the exact name, "
-                    "or ask me what apps are installed.")
+            # Not a real installed app — often an open-ended request mis-routed here ("create an app
+            # to track my workouts"). Don't dead-end: signal the orchestrator to let the backbone help.
+            return {"speech": f"There's no app called {name} installed.", "assist": True}
         before = self._window_ids()
         try:
             subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
