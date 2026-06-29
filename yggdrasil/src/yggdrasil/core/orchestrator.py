@@ -297,7 +297,12 @@ class Orchestrator:
             if any(s in msg for s in ("not found", "404", "connect", "refus", "no such model")):
                 return ("I'm still getting set up — my language model may still be downloading. "
                         "Give me a few minutes, then try again.")
-            return "Sorry, I hit a snag with that one. Please try again."
+            try:  # don't dead-end on an error — let the backbone still try to help
+                ctx = self.memory.context() if self.memory else ""
+                return await self._assist(goal, ctx, problem="an internal error")
+            except Exception:
+                return ("I couldn't complete that one, but I can help another way — I work with files "
+                        "and folders, apps, web search, lookups, reminders and memory. What do you need?")
 
     async def _handle(self, goal: str) -> str:
         goal = self._rewrite_pronouns(goal)
@@ -333,11 +338,11 @@ class Orchestrator:
               file=sys.stderr, flush=True)
         if not tasks:
             self._publish("")
-            reply = await self._converse(goal, ctx)
+            reply = await self._assist(goal, ctx)
             trace.record(trace.Decision(goal=goal, active=active, memory_used=bool(ctx),
                                         route="conversation", outcome=reply))
             return reply
-        replies, steps, ok = [], [], True
+        replies, steps, ok, any_ok, denied = [], [], True, False, False
         for task in tasks:
             self._resolve_pronoun(task)
             self._publish(_activity_label(task))
@@ -350,28 +355,53 @@ class Orchestrator:
                         or task.params.get("text") or ""),
                 "status": result.status.name,
             })
-            if result.status is not Status.OK:
+            if result.status is Status.OK:
+                any_ok = True
+            else:
                 ok = False
+                denied = denied or result.status is Status.DENIED
             replies.append(self._render(task, result))
         self._publish("")  # done — let the HUD fade out
-        reply = " ".join(replies)
+        # Never dead-end: if nothing worked (and the user didn't deliberately cancel), hand off to the
+        # backbone to explain and offer a path forward instead of a flat "I couldn't do that".
+        if not any_ok and not denied:
+            reply = await self._assist(goal, ctx, problem="; ".join(s["action"] for s in steps))
+        else:
+            reply = " ".join(replies)
         trace.record(trace.Decision(goal=goal, active=active, memory_used=bool(ctx),
                                     route="action", steps=steps, outcome=reply, ok=ok))
         return reply
 
-    async def _converse(self, goal: str, ctx: str) -> str:
+    async def _assist(self, goal: str, ctx: str, problem: str = "") -> str:
+        """The fallback backbone — Jarvis's job is to help to the maximum, so this NEVER dead-ends.
+        It answers questions, points the user at the right skill, or honestly says what isn't possible
+        yet and offers the nearest thing it CAN do. Capability-aware, honest, and spoken-friendly."""
         if not self.llm:
-            return ("I'm not sure how to do that yet. I can create, list, open, or delete "
-                    "folders, and remember things.")
+            return ("I can't do that one directly yet, but I can work with files and folders, open and "
+                    "close apps, search the web, look things up, set reminders, and remember things. "
+                    "Which of those would help?")
+        caps = ""
+        acts = getattr(self.planner, "allowed_actions", None)
+        if acts:
+            caps = "Skills you can actually run (action ids): " + ", ".join(sorted(acts)) + ".\n"
         system = (
-            f"You are {config.get_name()}, a friendly local voice assistant. Answer in one or "
-            "two short sentences suitable to be spoken aloud. Do not use markdown or lists."
+            f"You are {config.get_name()}, a capable local voice assistant, and your job is to help to "
+            "the maximum. The request below was not handled by a specific skill. RULES: never give a "
+            "dead-end answer like 'I can't' or 'please try again' and stop. Always do ONE of: (1) answer "
+            "it directly if it's a question; (2) if it maps to one of your skills, tell the user the "
+            "simple thing to say to trigger it; (3) if it isn't possible yet, say so honestly in one "
+            "breath and immediately offer the closest thing you CAN do, or a concrete next step. Be "
+            "honest — never claim you did something you didn't. Speak naturally, no markdown or lists, "
+            "brief but genuinely useful.\n" + caps
         )
         if ctx:
-            system += f"\nWhat you know about the user:\n{ctx}"
-        system += "\n/no_think"
+            system += f"What you know about the user:\n{ctx}\n"
+        if problem:
+            system += f"(A skill just failed — {problem}. Help the user move forward anyway.)\n"
+        system += "/no_think"
         resp = await self.llm.generate(system=system, prompt=goal, temperature=0.4)
-        return _THINK.sub("", resp.text).strip() or "I'm not sure."
+        return (_THINK.sub("", resp.text).strip()
+                or "Let me help another way — tell me what you're trying to get done.")
 
     def _rewrite_pronouns(self, goal: str) -> str:
         if self._last_path:

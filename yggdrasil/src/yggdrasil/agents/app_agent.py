@@ -299,11 +299,26 @@ class AppsAgent(BaseAgent):
         except Exception:
             return f"I couldn't search for {q}."
 
-    @staticmethod
-    def _list_apps() -> str:
+    def _list_apps(self) -> str:
         names = sorted({a["name"] for a in _read_desktop_apps()})
-        sample = ", ".join(names[:12])
-        return f"You have about {len(names)} apps installed, including: {sample}."
+        if not names:
+            return "I couldn't find any installed apps."
+        # "Make a list" means a real list — not reciting 50 names aloud. Save the full set and open it
+        # on screen; speak a short summary so the answer is actually useful.
+        self.workspace.mkdir(parents=True, exist_ok=True)
+        path = self.workspace / "installed-apps.txt"
+        path.write_text(f"Installed applications ({len(names)}):\n\n" + "\n".join(names) + "\n",
+                        encoding="utf-8")
+        opened = ""
+        if self._has_display():
+            try:
+                subprocess.Popen(["xdg-open", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                opened = " I've opened the full list on screen."
+            except Exception:
+                opened = ""
+        sample = ", ".join(names[:6])
+        return (f"You have {len(names)} apps installed. I saved the full list to {path.name}.{opened} "
+                f"A few examples: {sample}.")
 
     async def _write_document(self, topic: str) -> dict:
         topic = topic or "a short note"
