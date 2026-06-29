@@ -83,12 +83,12 @@ class FileAgent(BaseAgent):
         if verb in _EXISTING:
             src, _confident, cands = self._resolve_ref(params.get("path", ""))
             if src is None:
-                nm = (params.get("path") or "that").strip()
-                if cands:
+                if verb == "list":  # "list my files" / "list" => just list the current directory
+                    src = Path(self._last_list[0]) if self._last_list else self.sandbox_root
+                elif cands:
                     return {"speech": f"I found a few — did you mean {self._or_list(cands)}?"}
-                if verb == "list":
-                    return {"missing": nm, "name": nm}
-                return {"speech": f"I couldn't find {nm}."}
+                else:
+                    return {"speech": f"I couldn't find {(params.get('path') or 'that').strip()}."}
         else:
             src = self._safe_path(params.get("path", ""))
 
