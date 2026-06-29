@@ -95,6 +95,11 @@ _PLANNER_NEGATIVE = [
     'what is my name -> {"steps":[]}',
     'how are you -> {"steps":[]}',
     'dance a jig -> {"steps":[]}',
+    # Open-ended "build/make/create me a program/app/tool" is NOT "launch an app" — return no steps so
+    # the assistant backbone handles it honestly (offer to scaffold files, open an editor, etc.).
+    'build me a budgeting program -> {"steps":[]}',
+    'create an app that tracks my expenses -> {"steps":[]}',
+    'make me a tool to organize my photos -> {"steps":[]}',
 ]
 
 
