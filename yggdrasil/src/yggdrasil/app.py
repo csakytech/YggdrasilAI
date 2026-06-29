@@ -17,6 +17,7 @@ from .agents.research_agent import ResearchAgent
 from .agents.scheduler_agent import SchedulerAgent
 from .agents.security_agent import SecurityAgent
 from .agents.system_agent import SystemAgent
+from .agents.task_agent import TaskAgent
 from .agents.writer_agent import WriterAgent
 from .core import config
 from .core.activity import Activity
@@ -57,6 +58,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(AppsAgent(bus, perms, llm, sandbox))
     registry.register(SecurityAgent(bus, perms, llm))
     registry.register(CommandAgent(bus, perms))
+    registry.register(TaskAgent(bus, perms, llm, sandbox))
     registry.register(FocusAgent(bus, perms))
     registry.register(DocumentsAgent(bus, perms))
     registry.register(ExplainAgent(bus, perms, llm))

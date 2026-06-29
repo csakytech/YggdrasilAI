@@ -244,6 +244,29 @@ def _market_route(goal: str):
         return ("search", fm.group(1).strip(" .?") if fm else "")
     return None
 
+
+# CLI-synthesis rung -> the Task agent. Explicit, unambiguous lead-ins ("use the terminal to X",
+# "figure out how to X") so it never hijacks ordinary requests; the planner can also route here.
+_TASK_TRIGGER = re.compile(
+    r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?"
+    r"(?:use the (?:terminal|command ?line|shell)(?: to)?|figure out how to|work out how to|"
+    r"find a way to|do this for me[:,]?)\s+(.*)$", re.I)
+_TASK_CONFIRM = re.compile(r"^\s*(?:run it|run that|execute(?: it| that)?|go ahead and run(?: it)?|"
+                           r"yes,? run it)\b", re.I)
+_TASK_CANCEL = re.compile(r"^\s*(?:don'?t run(?: it| that)?|cancel that command)\b", re.I)
+
+
+def _task_route(goal: str):
+    g = goal.strip()
+    if _TASK_CONFIRM.match(g):
+        return ("confirm", "")
+    if _TASK_CANCEL.match(g):
+        return ("cancel", "")
+    m = _TASK_TRIGGER.match(g)
+    if m and m.group(1).strip():
+        return ("do", m.group(1).strip())
+    return None
+
 _VERB_LABEL = {
     "run": "Running", "create_folder": "Creating", "create_file": "Creating",
     "write_file": "Writing", "append_file": "Updating", "read_file": "Reading",
@@ -327,6 +350,15 @@ class Orchestrator:
             self._publish("Marketplace…")
             task = Task(action=f"market.{verb}", agent="market", params={"argument": arg})
             return self._render(task, await self._dispatch(task))
+        tsk = _task_route(goal)  # "use the terminal to X" / "figure out how to X" / "run it"
+        if tsk:
+            verb, arg = tsk
+            self._publish("Working it out…")
+            task = Task(action=f"task.{verb}", agent="task", params={"argument": arg})
+            result = await self._dispatch(task)
+            if isinstance(result.data, dict) and result.data.get("assist"):  # not a shell task
+                return await self._assist(goal, self.memory.context() if self.memory else "")
+            return self._render(task, result)
         if _SCHEDULE_RE.match(goal.strip()):  # "remind me…" / "schedule…" / "every weekday at 9…"
             self._publish("Scheduling…")
             task = Task(action="schedule.add", agent="schedule", params={"argument": goal})

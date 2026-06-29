@@ -35,6 +35,46 @@ def sandbox_available() -> bool:
     return shutil.which("bwrap") is not None
 
 
+async def run_command(cmdline: str, workdir, timeout: float = 20.0, allow_net: bool = False) -> dict:
+    """Run a shell command inside a bubblewrap jail confined to ``workdir`` (the only writable path),
+    with a read-only system and no network. Even a wrong or hostile command can't touch anything
+    outside ``workdir`` — that one directory is the entire blast radius. This is the safety harness for
+    AI-synthesized commands. Returns {output, returncode, timed_out}."""
+    workdir = str(Path(workdir).resolve())
+    argv = [
+        "bwrap",
+        "--ro-bind", "/usr", "/usr",
+        "--symlink", "usr/bin", "/bin",
+        "--symlink", "usr/lib", "/lib",
+        "--symlink", "usr/lib64", "/lib64",
+        "--symlink", "usr/sbin", "/sbin",
+        "--ro-bind-try", "/etc", "/etc",          # CLI tools commonly need /etc (locale, tz…) — read-only
+        "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
+        "--bind", workdir, workdir,               # the ONLY writable path — the task's blast radius
+        "--chdir", workdir,
+        "--clearenv",
+        "--setenv", "PATH", "/usr/bin:/bin",
+        "--setenv", "HOME", workdir,
+        "--unshare-user", "--unshare-ipc", "--unshare-pid", "--unshare-uts", "--unshare-cgroup",
+        "--new-session", "--die-with-parent",
+    ]
+    if not allow_net:
+        argv += ["--unshare-net"]
+    argv += ["/bin/bash", "-c", cmdline]
+    proc = await asyncio.create_subprocess_exec(
+        *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return {"output": (out or b"").decode("utf-8", "replace"), "returncode": proc.returncode,
+                "timed_out": False}
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        return {"output": "", "returncode": None, "timed_out": True}
+
+
 def _bwrap_argv(packet_dir: Path, allow_net: bool) -> list[str]:
     argv = [
         "bwrap",
