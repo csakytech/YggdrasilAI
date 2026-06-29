@@ -160,6 +160,10 @@ _PRONOUN_GOAL = re.compile(
     r"^(open|list|show|delete|remove)\s+(it|that|this|them|the folder|the file)\s*$", re.I
 )
 _THINK = re.compile(r"<think>.*?</think>", re.S)  # strip qwen3 reasoning if it leaks
+# Answers to a pending "…? Say yes or no." prompt (e.g. confirming a delete).
+_YES_RE = re.compile(r"^\s*(yes|yeah|yep|yup|sure|ok|okay|correct|do it|go ahead|confirm|please do|"
+                     r"that'?s right|affirmative)\b", re.I)
+_NO_RE = re.compile(r"^\s*(no|nope|nah|don'?t|do not|cancel|stop|negative|never ?mind)\b", re.I)
 
 # Hard safety backstop: catastrophic intent (wipe the disk, delete all my files, rm -rf /) gets a fixed
 # refusal and NEVER reaches the model — an LLM instruction must not be the only thing between the user
@@ -321,6 +325,7 @@ class Orchestrator:
         self.assistant_name = assistant_name
         self.activity = activity  # publishes "what I'm doing" for the HUD/dashboard
         self._last_path: str | None = None
+        self._pending_confirm: str | None = None  # an agent awaiting a spoken yes/no (e.g. file delete)
 
     def _publish(self, text: str) -> None:
         if self.activity:
@@ -350,6 +355,16 @@ class Orchestrator:
             return ("I won't help erase or destroy your drive, files, or system — that's irreversible and "
                     "could break your machine. If you genuinely need to wipe a disk or reinstall, do that "
                     "deliberately yourself, with backups — not by voice.")
+        if self._pending_confirm:  # we just asked a yes/no (e.g. "Delete X?") — interpret the answer
+            agent = self._pending_confirm
+            self._pending_confirm = None
+            if _YES_RE.match(goal.strip()):
+                task = Task(action=f"{agent}.confirm", agent=agent, params={})
+                return self._render(task, await self._dispatch(task))
+            if _NO_RE.match(goal.strip()):
+                task = Task(action=f"{agent}.cancel", agent=agent, params={})
+                return self._render(task, await self._dispatch(task))
+            # not a yes/no -> drop the pending confirmation and handle the new request normally
         if _EXPLAIN_RE.match(goal.strip()):  # "why did you…" -> explain my last action, reliably
             self._publish("")
             task = Task(action="explain.why", agent="explain", params={"argument": ""})
@@ -400,6 +415,8 @@ class Orchestrator:
             self._resolve_pronoun(task)
             self._publish(_activity_label(task))
             result = await self._dispatch(task)
+            if isinstance(result.data, dict) and result.data.get("await_confirm"):
+                self._pending_confirm = result.data.get("agent")  # the next yes/no answers this
             if result.status is Status.OK and task.params.get("path"):
                 self._last_path = task.params["path"]
             steps.append({
@@ -510,7 +527,11 @@ class Orchestrator:
                 return f"I couldn't find {name}."
             if verb == "list":
                 items = data.get("items", [])
-                return (f"{name} contains: " + ", ".join(items) + ".") if items else f"{name} is empty."
+                if not items:
+                    return f"{name} is empty."
+                shown = "; ".join(f"{i + 1}, {it}" for i, it in enumerate(items[:12]))
+                more = f", and {len(items) - 12} more" if len(items) > 12 else ""
+                return f"{name} has {len(items)}: {shown}{more}."
             if verb == "open":
                 if data.get("no_display"):
                     return "I can only open a window when you're signed in at the desktop."

@@ -14,10 +14,13 @@ from pathlib import Path
 from typing import Any
 
 from ..core.permissions import Capability
+from ..core.resolve import resolve
 from .base import BaseAgent
 
-# Ops that act on an item that already exists (so we case-insensitively resolve the source).
+# Ops that act on an item that already exists (so we resolve the spoken source to a real name).
 _EXISTING = {"list", "open", "delete", "read_file", "append_file", "info", "copy", "move", "rename", "permissions"}
+# Ops that change/lose data → ALWAYS confirm the resolved name with a yes/no before acting.
+_DESTRUCTIVE = {"delete", "rename", "move"}
 
 
 class FileAgent(BaseAgent):
@@ -53,23 +56,53 @@ class FileAgent(BaseAgent):
         "rename": Capability("rename", False, "Rename a file or folder"),
         "open": Capability("open", False, "Open a file or folder in the desktop file manager"),
         "permissions": Capability("permissions", False, "Get or set a file's permissions (executable / read-only / writable)"),
-        "delete": Capability("delete", dangerous=True, description="Delete a file or folder (irreversible)"),
+        "delete": Capability("delete", False, "Delete a file or folder (irreversible) — always confirmed"),
+        "confirm": Capability("confirm", False, "Confirm a pending delete / rename / move"),
+        "cancel": Capability("cancel", False, "Cancel a pending delete / rename / move"),
     }
 
     def __init__(self, bus, perms, sandbox_root: str | os.PathLike) -> None:
         super().__init__(bus, perms)
         self.sandbox_root = Path(sandbox_root).resolve()
         self.sandbox_root.mkdir(parents=True, exist_ok=True)
+        self._pending: dict | None = None                      # a destructive op awaiting yes/no
+        self._last_list: tuple[str, list[str]] | None = None   # (dir, names) for "the third one"
 
     async def _execute(self, verb: str, params: dict[str, Any]) -> Any:
+        if verb == "confirm":
+            return await self._run_pending()
+        if verb == "cancel":
+            had = self._pending is not None
+            self._pending = None
+            return {"speech": "Okay, I won't." if had else "There's nothing to confirm."}
         if verb == "search":
             q = (params.get("path") or "").strip().lower()
             hits = [p.name for p in self.sandbox_root.rglob("*") if q and q in p.name.lower()][:10]
             return {"speech": ("Found: " + ", ".join(hits) + ".") if hits else f"No matches for {q or 'that'}."}
 
-        src = self._safe_path(params.get("path", ""))
         if verb in _EXISTING:
-            src = self._resolve_existing(src)
+            src, _confident, cands = self._resolve_ref(params.get("path", ""))
+            if src is None:
+                nm = (params.get("path") or "that").strip()
+                if cands:
+                    return {"speech": f"I found a few — did you mean {self._or_list(cands)}?"}
+                if verb == "list":
+                    return {"missing": nm, "name": nm}
+                return {"speech": f"I couldn't find {nm}."}
+        else:
+            src = self._safe_path(params.get("path", ""))
+
+        # Destructive ops ALWAYS confirm first, showing the RESOLVED name (a fuzzy match can be wrong).
+        if verb in _DESTRUCTIVE:
+            if src == self.sandbox_root:
+                return {"speech": "I won't do that to your whole workspace."}
+            if verb in ("rename", "move"):
+                dest = self._safe_path(params.get("dest", ""))
+                self._pending = {"op": verb, "src": str(src), "dest": str(dest)}
+                return {"await_confirm": True, "agent": "file",
+                        "speech": f"{verb.capitalize()} {src.name} to {dest.name}? Say yes or no."}
+            self._pending = {"op": "delete", "src": str(src)}
+            return {"await_confirm": True, "agent": "file", "speech": f"Delete {src.name}? Say yes or no."}
 
         if verb == "create_folder":
             src.mkdir(parents=True, exist_ok=True)
@@ -128,21 +161,19 @@ class FileAgent(BaseAgent):
             if not src.exists():
                 return {"missing": str(src), "name": src.name}
             items = sorted(p.name + ("/" if p.is_dir() else "") for p in src.iterdir())
+            self._last_list = (str(src), [it.rstrip("/") for it in items])  # for "delete the third one"
             return {"path": str(src), "name": src.name, "items": items}
 
-        if verb in ("copy", "move", "rename"):
+        if verb == "copy":
             if not src.exists():
                 return {"speech": f"I couldn't find {src.name}."}
             dest = self._safe_path(params.get("dest", ""))
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if verb == "copy":
-                if src.is_dir():
-                    shutil.copytree(src, dest, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(src, dest)
-                return {"speech": f"Copied {src.name} to {dest.name}."}
-            shutil.move(str(src), str(dest))
-            return {"speech": f"{'Renamed' if verb == 'rename' else 'Moved'} {src.name} to {dest.name}."}
+            if src.is_dir():
+                shutil.copytree(src, dest, dirs_exist_ok=True)
+            else:
+                shutil.copy2(src, dest)
+            return {"speech": f"Copied {src.name} to {dest.name}."}
 
         if verb == "open":
             if not src.exists():
@@ -154,13 +185,6 @@ class FileAgent(BaseAgent):
             subprocess.Popen(["xdg-open", str(src)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return {"opened": str(src), "name": src.name}
 
-        if verb == "delete":
-            if src.is_dir():
-                shutil.rmtree(src)
-            else:
-                src.unlink(missing_ok=True)
-            return {"deleted": str(src), "name": src.name}
-
         raise ValueError(f"unhandled verb '{verb}'")
 
     def _safe_path(self, rel: str) -> Path:
@@ -170,16 +194,48 @@ class FileAgent(BaseAgent):
             raise PermissionError("path escapes the sandbox root")
         return candidate
 
-    def _resolve_existing(self, target: Path) -> Path:
-        if target == self.sandbox_root or target.exists():
-            return target
-        parent = target.parent
-        if parent.is_dir():
-            want = self._norm(target.name)
-            for p in parent.iterdir():
-                if self._norm(p.name) == want:
-                    return p
-        return target
+    def _resolve_ref(self, raw: str):
+        """Resolve a spoken reference to a real path. Uses the last listing for ordinals ("the third
+        one") and fuzzy matching for mis-heard names. Returns (path | None, confident, candidates)."""
+        raw = (raw or "").strip()
+        if not raw:
+            return self.sandbox_root, True, []
+        base = Path(self._last_list[0]) if self._last_list else self.sandbox_root
+        ordered = self._last_list[1] if self._last_list else None
+        if "/" in raw:  # a sub-path: look inside its parent instead
+            sp = self._safe_path(raw)
+            base, ordered, raw = sp.parent, None, sp.name
+        try:
+            entries = [p.name for p in base.iterdir()]
+        except OSError:
+            entries = []
+        name, confident, cands = resolve(raw, entries, ordered)
+        return (base / name if name else None), confident, cands
+
+    async def _run_pending(self):
+        p = self._pending
+        self._pending = None
+        if not p:
+            return {"speech": "There's nothing waiting to confirm."}
+        src = Path(p["src"])
+        try:
+            if p["op"] == "delete":
+                if src.is_dir():
+                    shutil.rmtree(src)
+                else:
+                    src.unlink(missing_ok=True)
+                return {"deleted": str(src), "name": src.name, "speech": f"Deleted {src.name}."}
+            dest = Path(p["dest"])
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src), str(dest))
+            return {"speech": f"{'Renamed' if p['op'] == 'rename' else 'Moved'} {src.name} to {dest.name}."}
+        except Exception as e:  # noqa: BLE001
+            return {"speech": f"That didn't work: {e}"}
+
+    @staticmethod
+    def _or_list(names) -> str:
+        names = list(names)[:4]
+        return names[0] if len(names) == 1 else ", ".join(names[:-1]) + ", or " + names[-1]
 
     @staticmethod
     def _norm(name: str) -> str:
