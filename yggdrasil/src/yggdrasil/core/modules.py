@@ -24,7 +24,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-ALLOW_UNTRUSTED = False  # flip only once the sandbox exists; gates loading community-tier packets
+ALLOW_UNTRUSTED = True  # the sandbox exists (core.sandbox); community-tier packets run under bubblewrap
 
 
 def modules_dir() -> Path:
@@ -79,8 +79,9 @@ def consent_summary(m: dict) -> dict:
     }
 
 
-def install(source: str | os.PathLike) -> dict:
-    """Install a packet from a local directory. Returns the manifest; raises ValueError if invalid."""
+def install(source: str | os.PathLike, tier: str = "community") -> dict:
+    """Install a packet from a local directory. ``tier`` (from the registry; default community) decides
+    how it loads: verified/official in-process, otherwise sandboxed. Returns the manifest."""
     src = Path(source)
     mpath = src / "manifest.toml"
     if not mpath.is_file():
@@ -94,7 +95,7 @@ def install(source: str | os.PathLike) -> dict:
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(src, dest)
-    _index_set(mid, {"id": mid, "name": m["agent"].get("name", mid),
+    _index_set(mid, {"id": mid, "name": m["agent"].get("name", mid), "tier": tier,
                      "version": m["agent"]["version"], "domain": m["routing"]["domain"]})
     return m
 
@@ -149,7 +150,7 @@ def install_from_registry(entry: dict, base_url: str | None = None) -> dict:
     with tempfile.TemporaryDirectory() as td:
         with zipfile.ZipFile(io.BytesIO(blob)) as z:
             z.extractall(td)
-        return install(_find_manifest_root(Path(td)))
+        return install(_find_manifest_root(Path(td)), tier=entry.get("tier", "community"))
 
 
 def _find_manifest_root(base: Path) -> Path:
@@ -161,21 +162,39 @@ def _find_manifest_root(base: Path) -> Path:
 
 
 def load_installed(bus, perms, llm=None, reserved_domains=()) -> list:
-    """Import + instantiate each installed agent so the registry can register it.
-
-    IN-PROCESS — trusted agents only (no sandbox yet). ``reserved_domains`` are taken by Core agents;
-    an installed packet may NOT override them, so a community agent can't hijack 'file', 'system', etc.
+    """Load each installed agent so the registry can register it. Verified/official agents load
+    in-process (trusted); everything else runs sandboxed (bubblewrap). An untrusted packet is REFUSED
+    if the sandbox is unavailable — never silently downgraded to in-process. ``reserved_domains`` are
+    taken by Core agents, so a packet can't hijack 'file', 'system', etc.
     """
     out = []
     for meta in installed():
+        mid = meta["id"]
         if meta.get("domain") in reserved_domains:
-            print(f"[modules] skip {meta['id']}: domain '{meta['domain']}' is reserved", file=sys.stderr)
+            print(f"[modules] skip {mid}: domain '{meta['domain']}' is reserved", file=sys.stderr)
             continue
+        tier = meta.get("tier", "community")
         try:
-            out.append(_load_one(meta["id"], bus, perms, llm))
+            if tier in ("verified", "official"):
+                out.append(_load_one(mid, bus, perms, llm))            # trusted -> in-process
+            else:
+                out.append(_load_sandboxed(mid, bus, perms, llm, tier))  # untrusted -> bubblewrap
         except Exception as e:  # one bad packet must not stop the assistant from starting
-            print(f"[modules] failed to load {meta['id']}: {e!r}", file=sys.stderr)
+            print(f"[modules] failed to load {mid}: {e!r}", file=sys.stderr)
     return [a for a in out if a is not None]
+
+
+def _load_sandboxed(mid, bus, perms, llm, tier):
+    from .sandbox import SandboxedAgent, sandbox_available
+    if not ALLOW_UNTRUSTED:
+        print(f"[modules] skip {mid}: untrusted (tier={tier}) and ALLOW_UNTRUSTED is off", file=sys.stderr)
+        return None
+    if not sandbox_available():
+        print(f"[modules] skip {mid}: untrusted and no sandbox (bwrap) — refusing to run in-process",
+              file=sys.stderr)
+        return None
+    d = modules_dir() / mid
+    return SandboxedAgent(bus, perms, d, _load_manifest(d / "manifest.toml"), llm)
 
 
 def _load_one(mid: str, bus, perms, llm):

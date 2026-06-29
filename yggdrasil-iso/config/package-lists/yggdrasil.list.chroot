@@ -64,3 +64,8 @@ gir1.2-gtk-3.0
 python3-uno
 # notify-send — desktop notifications for scheduled reminders/briefings
 libnotify-bin
+
+# --- Marketplace sandbox ---
+# bubblewrap (bwrap) jails untrusted community agents: read-only system, the agent's own dir the only
+# writable path, no network. Without it, untrusted (community-tier) agents are refused, not run.
+bubblewrap
