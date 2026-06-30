@@ -145,6 +145,10 @@ class ScheduleApp(Gtk.Application):
 
 
 def main() -> None:
+    try:
+        GLib.set_prgname("yggdrasil-schedule")
+    except Exception:
+        pass
     ScheduleApp().run(None)
 
 

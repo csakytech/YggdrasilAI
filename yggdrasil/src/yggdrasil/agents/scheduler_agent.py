@@ -88,12 +88,13 @@ class SchedulerAgent(BaseAgent):
 
     def _hide(self) -> str:
         closed = False
-        try:  # close the window by its WM_CLASS (org.yggdrasil.Schedule)
+        try:  # match the window by its title ("Scheduled Tasks") or app id
             for line in subprocess.run(["wmctrl", "-lx"], capture_output=True, text=True,
                                        timeout=5).stdout.splitlines():
-                parts = line.split(None, 4)
-                if len(parts) >= 3 and "org.yggdrasil.schedule" in parts[2].lower():
-                    subprocess.run(["wmctrl", "-i", "-c", parts[0]], capture_output=True, timeout=5)
+                low = line.lower()
+                if "scheduled tasks" in low or "org.yggdrasil.schedule" in low:
+                    subprocess.run(["wmctrl", "-i", "-c", line.split(None, 1)[0]],
+                                   capture_output=True, timeout=5)
                     closed = True
         except Exception:
             pass
