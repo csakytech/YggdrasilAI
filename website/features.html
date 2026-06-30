@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Features — ThorOS</title>
-<meta name="description" content="What ThorOS can do: a local voice assistant, agents that operate real applications, deep document control, context-awareness, an explainable AI, and a permission model that keeps you in control.">
+<meta name="description" content="What ThorOS can do: a local voice assistant that opens apps, manages files, looks things up live, sets reminders, runs commands safely, installs community agents by voice, and never dead-ends — built voice-first so anyone can use a computer, including people who can't use their hands.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -22,70 +22,111 @@
 
 <div class="page-head"><div class="container">
   <h2>Features</h2>
-  <p class="sub">ThorOS is an assistant that actually operates your computer — locally, safely,
-  and out loud. Here's what's inside the preview.</p>
+  <p class="sub">ThorOS is an assistant that actually <em>operates your computer</em> — locally, safely,
+  and out loud. Here's what it can do today.</p>
 </div></div>
 
 <section style="padding-top:18px"><div class="container">
 
   <div class="feat"><div class="fic">🎙️</div><div>
     <h3>A local-first voice assistant</h3>
-    <p>Say the wake word, then your request. Wake-word detection, speech-to-text (Whisper), the
-    language model (via Ollama), and the spoken voice (Piper) run on your own machine by default —
-    nothing leaves unless you choose to connect a cloud model for more power.</p></div></div>
+    <p>Say the wake word, then your request. Wake-word detection, speech-to-text (Whisper), the language
+    model (via Ollama), and the spoken voice (Piper) run on your own machine by default — nothing leaves
+    unless you choose to connect a cloud model for more power. Prefer to type? A chat window gives you the
+    same assistant.</p></div></div>
 
   <div class="feat"><div class="fic">🧠</div><div>
-    <h3>An orchestrator that plans, and agents that act</h3>
+    <h3>It plans, then a team of agents acts</h3>
     <p>Your words go to an on-device planner that decides what to do and routes it to specialized
-    agents: <strong>Files</strong>, <strong>Apps</strong> (open, close, browse, search),
-    <strong>Documents</strong>, the <strong>Terminal</strong>, <strong>Memory</strong>,
-    <strong>Security</strong>, and more. Each agent does one job well.</p></div></div>
+    <strong>agents</strong>: files, applications, documents, the terminal, live research, reminders,
+    memory, and security. Each does one job well — and it's doing real work, not just chatting.</p></div></div>
+
+  <div class="feat"><div class="fic">🙌</div><div>
+    <h3>It never dead-ends</h3>
+    <p>If no skill fits your request, a reasoning backbone still helps to the maximum: it answers the
+    question, tells you the simple way to trigger the right skill, or honestly offers the closest thing it
+    <em>can</em> do — never a flat "I can't, try again."</p></div></div>
+
+  <div class="feat"><div class="fic">🌐</div><div>
+    <h3>Live answers, reminders &amp; briefings</h3>
+    <p>"What's the price of Bitcoin?" "What's the weather?" — it looks things up on the web and reads back
+    a short answer. Ask it to <em>remember</em>: "remind me an hour before my meeting," or "give me the
+    Bitcoin report every weekday at 9&nbsp;am," and it speaks up at the right time.</p></div></div>
+
+  <div class="feat"><div class="fic">🗂️</div><div>
+    <h3>It understands real, messy file names — and confirms before deleting</h3>
+    <p>You don't have to pronounce a filename perfectly. Say "the reports folder," "my vacation photos,"
+    or "the first one," and it matches what's actually on disk. And anything destructive —
+    delete, rename, move — <strong>always</strong> reads back the resolved name and waits for your
+    yes or no first.</p></div></div>
 
   <div class="feat"><div class="fic">🎯</div><div>
     <h3>Context-aware — it knows what you're looking at</h3>
-    <p>Open a terminal and say "list files" and it runs <code>ls</code> right there. Focus a
-    document and "make it bold" formats it. The same words do the right thing depending on the
-    window in front of you.</p></div></div>
+    <p>Open a terminal and say "list files" and it runs <code>ls</code> right there. Focus a document and
+    "make it bold" formats it. The same words do the right thing depending on the window in front of
+    you.</p></div></div>
 
   <div class="feat"><div class="fic">📄</div><div>
     <h3>Deep control of real applications</h3>
-    <p>Beyond clicking menus, ThorOS speaks LibreOffice's own command language. "Replace michael
-    with Michael," "insert a page break," "export this to PDF" — driven through the application's
-    real API, not fragile screen automation.</p></div></div>
-
-  <div class="feat"><div class="fic">💬</div><div>
-    <h3>An AI that explains itself</h3>
-    <p>Ask "why did you do that?" and it tells you the genuine reasoning behind its last action —
-    what you asked, what it saw, and what it chose — reconstructed from the real decision, not a
-    made-up story.</p></div></div>
-
-  <div class="feat"><div class="fic">🧷</div><div>
-    <h3>It remembers you</h3>
-    <p>Tell it your name, your preferences, the way you work, and it remembers across sessions —
-    stored in a plain file on your disk that you own and can read.</p></div></div>
+    <p>Beyond clicking menus, ThorOS speaks LibreOffice's own command language: "replace michael with
+    Michael," "insert a page break," "export this to PDF" — driven through the application's real API,
+    not fragile screen automation.</p></div></div>
 
   <div class="feat"><div class="fic">⌨️</div><div>
-    <h3>Type or talk</h3>
-    <p>Prefer to type? A chat window gives you the exact same assistant and agents, for quiet
-    rooms or when your hands are on the keyboard.</p></div></div>
-
-  <div class="feat"><div class="fic">🛡️</div><div>
-    <h3>You're in control</h3>
-    <p>Routine actions just happen; anything risky — deleting files, running system commands —
-    is gated behind an authorization code, with a denylist that refuses catastrophic commands.
-    An always-on guardian watches for trouble in the background.</p></div></div>
+    <h3>Turn a request into a command — run safely <span style="font-weight:600;opacity:.7">(preview)</span></h3>
+    <p>There's no voice app for everything — but Linux already has a command for almost anything. Ask
+    "use the terminal to convert this to a PDF," and ThorOS works out the command, shows you exactly what
+    it'll do, and runs it inside a sandbox locked to a single folder, so a wrong command can't escape.</p></div></div>
 
   <div class="feat"><div class="fic">🧩</div><div>
-    <h3>Modular — install capabilities, not software</h3>
-    <p>The whole system is built from swappable agents and personalities. The long-term goal is a
-    community marketplace: download an agent that deeply controls your favorite program, or a
-    personality that turns ThorOS into a specialist for the week.</p></div></div>
+    <h3>A community marketplace — install capabilities, not software</h3>
+    <p>Browse a catalog and <strong>install AI agents by voice</strong> — hear what an agent can do,
+    confirm, and it's usable instantly. Untrusted community agents run inside a sandbox (read-only system,
+    their own folder only, no network); reviewed agents run trusted. Anyone can build and publish one.</p></div></div>
 
-  <div class="feat" style="border-bottom:none"><div class="fic">🌐</div><div>
+  <div class="feat"><div class="fic">💬</div><div>
+    <h3>It explains itself — and remembers you</h3>
+    <p>Ask "why did you do that?" and it tells you the genuine reasoning behind its last action. Tell it
+    your name, your preferences, the way you work, and it remembers across sessions — in a plain file on
+    your disk that you own and can read.</p></div></div>
+
+  <div class="feat" style="border-bottom:none"><div class="fic">🛡️</div><div>
+    <h3>You're in control</h3>
+    <p>The AI never touches the system directly. Routine actions just happen; anything risky — deleting
+    files, running commands — is gated behind a confirmation or an authorization code, with a hard block
+    that refuses catastrophic commands like wiping a disk.</p></div></div>
+
+</div></section>
+
+<section style="padding-top:0"><div class="container">
+  <div class="callout">
+    <h2>Built for people who can't use their hands</h2>
+    <p class="sub" style="margin:10px auto 0">ThorOS is voice-first by design — so people with severe
+    arthritis, injuries, or no hand use can operate a computer and the web <strong>independently, in real
+    time</strong>. Most software is built for a keyboard and mouse. This isn't. That's the whole point.</p>
+  </div>
+</div></section>
+
+<section style="padding-top:0"><div class="container">
+
+  <div class="feat" style="border-bottom:none"><div class="fic">🌍</div><div>
     <h3>Works offline. Scales up when you want.</h3>
-    <p>Everything runs on-device by design. The architecture also supports an optional cloud brain
-    or a thin-client mode for lighter hardware — opt-in, never required, never a fork.</p></div></div>
+    <p>Everything runs on-device by design — private, and yours. The same codebase also supports an
+    optional cloud brain or a thin-client mode for lighter hardware: opt-in, never required, never a
+    fork. Your AI, your choice.</p></div></div>
 
+</div></section>
+
+<section style="padding-top:0"><div class="container">
+  <div class="callout">
+    <h2>Join the community 💬</h2>
+    <p class="sub" style="margin:10px auto 22px">ThorOS is open and growing. Come help shape it — whether
+    you write code, build an agent, test it on your hardware, or just want to follow along.</p>
+    <div class="btnrow" style="margin-top:0">
+      <a class="btn primary" href="#" onclick="return false;" title="Invite link coming soon">💬 Discord &nbsp;(coming soon)</a>
+      <a class="btn ghost" href="https://github.com/csakytech/YggdrasilAI">★ GitHub</a>
+    </div>
+  </div>
 </div></section>
 
 <section style="padding-top:0"><div class="container">
