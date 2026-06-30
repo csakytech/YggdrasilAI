@@ -115,8 +115,18 @@ an agent, test it on your hardware, or just want to follow along.
 
 ## License
 
-Intended to be open source — a `LICENSE` file is being finalized. Until it lands, please open an issue
-before redistributing.
+ThorOS is licensed under **either of**
+
+- Apache License, Version 2.0 ([`LICENSE-APACHE`](LICENSE-APACHE) · <https://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([`LICENSE-MIT`](LICENSE-MIT) · <https://opensource.org/licenses/MIT>)
+
+at your option.
+
+### Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this
+work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
+additional terms or conditions.
 
 ## Author note
 
