@@ -8,7 +8,7 @@ and an on-device AI plans it and carries it out through a team of permissioned a
 
 *Part of the **Yggdrasil** platform by **YggdrasilAI**. Releases are named after Norse gods — this one is **Thor**.*
 
-[🌐 Website](https://www.yggdrasilai.org) · [⬇ Download ISO](https://github.com/csakytech/YggdrasilAI/releases/latest) · [🚀 Get Started](https://www.yggdrasilai.org/guide.html) · [💬 Matrix](#community) · [💚 Support](https://www.yggdrasilai.org/donate.html)
+[🌐 Website](https://www.yggdrasilai.org) · [⬇ Download ISO](https://github.com/csakytech/YggdrasilAI/releases/latest) · [🚀 Get Started](https://www.yggdrasilai.org/guide.html) · [💬 Matrix](https://matrix.to/#/#thoros:yggdrasilai.org) · [💚 Support](https://www.yggdrasilai.org/donate.html)
 
 ```
 You → "Goal, in plain language" → on-device AI plans it → permissioned agents act → spoken result
@@ -98,7 +98,9 @@ permission layer — so adding a skill doesn't mean touching the core.
 ThorOS is open and growing — contributors and curious people are welcome, whether you write code, build
 an agent, test it on your hardware, or just want to follow along.
 
-- 💬 **Matrix** — open, decentralized, self-hostable chat (no tracking). Room link **_coming soon_**
+- 💬 **Matrix** — chat with us at **[#thoros:yggdrasilai.org](https://matrix.to/#/#thoros:yggdrasilai.org)**
+  (open, decentralized, **self-hosted on our own server** — no tracking). Join from any Matrix account,
+  or create one on `matrix.yggdrasilai.org` with registration code `thoros-6c92e99f`.
 - 🐙 **[GitHub](https://github.com/csakytech/YggdrasilAI)** — issues, discussions, and pull requests
 - 💚 **[Support the project](https://www.yggdrasilai.org/donate.html)**
 
