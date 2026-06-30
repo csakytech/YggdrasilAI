@@ -7,7 +7,10 @@ the shared Schedule; the Runner in the voice service fires them. Managed by voic
 from __future__ import annotations
 
 import datetime as dt
+import os
 import re
+import subprocess
+import sys
 from typing import Any
 
 from ..core.permissions import Capability
@@ -40,11 +43,15 @@ class SchedulerAgent(BaseAgent):
         'schedule the bitcoin report every weekday at 9am -> {"steps":[{"action":"schedule.add","argument":"the bitcoin report every weekday at 9am"}]}',
         'every morning at 8 tell me the weather in denver -> {"steps":[{"action":"schedule.add","argument":"every morning at 8 tell me the weather in denver"}]}',
         'what do I have scheduled -> {"steps":[{"action":"schedule.list","argument":""}]}',
+        'show my scheduled tasks -> {"steps":[{"action":"schedule.show","argument":""}]}',
+        'close the schedule -> {"steps":[{"action":"schedule.hide","argument":""}]}',
         'cancel the bitcoin report -> {"steps":[{"action":"schedule.cancel","argument":"bitcoin report"}]}',
     ]
     capabilities = {
         "add": Capability("add", False, "Schedule a reminder or recurring briefing"),
         "list": Capability("list", False, "List scheduled reminders and briefings"),
+        "show": Capability("show", False, "Open the scheduled-tasks window on screen"),
+        "hide": Capability("hide", False, "Close the scheduled-tasks window"),
         "cancel": Capability("cancel", False, "Cancel a scheduled item"),
     }
 
@@ -59,9 +66,45 @@ class SchedulerAgent(BaseAgent):
             return {"speech": await self._add(arg)}
         if verb == "list":
             return {"speech": self._list()}
+        if verb == "show":
+            return {"speech": self._show()}
+        if verb == "hide":
+            return {"speech": self._hide()}
         if verb == "cancel":
             return {"speech": self._cancel(arg)}
         raise ValueError(f"unhandled verb '{verb}'")
+
+    def _show(self) -> str:
+        if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
+            return "I can only show that on the desktop — sign in there and ask again."
+        try:
+            subprocess.Popen([sys.executable, "-m", "yggdrasil.ui.schedule"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            return "I couldn't open the schedule window."
+        n = len(self.store.list())
+        return (f"Here are your scheduled tasks — {n} on screen." if n
+                else "Opened your schedule — nothing's in it yet.")
+
+    def _hide(self) -> str:
+        closed = False
+        try:  # close the window by its WM_CLASS (org.yggdrasil.Schedule)
+            for line in subprocess.run(["wmctrl", "-lx"], capture_output=True, text=True,
+                                       timeout=5).stdout.splitlines():
+                parts = line.split(None, 4)
+                if len(parts) >= 3 and "org.yggdrasil.schedule" in parts[2].lower():
+                    subprocess.run(["wmctrl", "-i", "-c", parts[0]], capture_output=True, timeout=5)
+                    closed = True
+        except Exception:
+            pass
+        if not closed:  # fallback: kill the window process
+            try:
+                if subprocess.run(["pkill", "-f", "yggdrasil.ui.schedule"],
+                                  capture_output=True, timeout=5).returncode == 0:
+                    closed = True
+            except Exception:
+                pass
+        return "Closed the schedule." if closed else "The schedule window wasn't open."
 
     async def _add(self, request: str) -> str:
         if not request:

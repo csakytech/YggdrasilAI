@@ -222,6 +222,20 @@ _SCHEDULE_RE = re.compile(
     re.I,
 )
 
+# "show / open / close my scheduled tasks" -> the Schedule window (NOT schedule.add). Checked before
+# _SCHEDULE_RE so "show scheduled tasks" opens the window instead of trying to schedule something.
+_SCHED_UI_RE = re.compile(
+    r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?"
+    r"(show|open|display|view|pull up|bring up|see|close|hide|dismiss)\b.{0,30}?\bschedul", re.I)
+
+
+def _sched_ui_route(goal: str):
+    m = _SCHED_UI_RE.match(goal.strip())
+    if not m:
+        return None
+    return "hide" if m.group(1).lower() in ("close", "hide", "dismiss") else "show"
+
+
 # Marketplace voice flow -> the Market agent. Routed deterministically (the planner is unreliable on
 # these meta-commands). Install/remove/browse REQUIRE the word "agent"/"module"/"marketplace" so they
 # never collide with installing an app (the future Software agent) or with general yes/no in chat.
@@ -390,6 +404,11 @@ class Orchestrator:
             if isinstance(result.data, dict) and result.data.get("assist"):  # not a shell task
                 return await self._assist(goal, self.memory.context() if self.memory else "")
             return self._render(task, result)
+        su = _sched_ui_route(goal)  # "show/close my scheduled tasks" -> the schedule window
+        if su:
+            self._publish("")
+            task = Task(action=f"schedule.{su}", agent="schedule", params={})
+            return self._render(task, await self._dispatch(task))
         if _SCHEDULE_RE.match(goal.strip()):  # "remind me…" / "schedule…" / "every weekday at 9…"
             self._publish("Scheduling…")
             task = Task(action="schedule.add", agent="schedule", params={"argument": goal})
