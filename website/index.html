@@ -83,6 +83,7 @@
         <a class="btn primary" href="https://github.com/csakytech/YggdrasilAI/releases/latest">⬇ Download ISO &nbsp;(v0.7)</a>
         <a class="btn ghost" href="https://github.com/csakytech/YggdrasilAI">Source on GitHub</a>
       </div>
+      <p id="dlcount" style="margin:14px auto 0;color:var(--muted);font-size:.95rem;display:none">⬇ Downloaded <b id="dlnum">—</b> times</p>
       <p style="margin-top:16px;font-size:.97rem">🚀 New to this? Start with the
         <a href="guide.html"><b>2-minute Getting Started guide</b></a> — what to expect on
         first boot, how to talk to Jarvis, and what to do if something's not right.</p>
@@ -117,6 +118,11 @@ function openDemo(){document.getElementById('demoModal').classList.add('open');
 function closeDemo(){document.getElementById('demoModal').classList.remove('open');
   document.getElementById('demoFrame').src = "";}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeDemo();});
+// Download counter — reads the server-side cumulative count (no client tracking).
+fetch('downloads.json?_='+Date.now()).then(function(r){return r.json();}).then(function(d){
+  if(d&&d.downloads>0){document.getElementById('dlnum').textContent=d.downloads.toLocaleString();
+    document.getElementById('dlcount').style.display='';}
+}).catch(function(){});
 </script>
 
 </body>

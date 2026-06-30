@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Cumulative ThorOS download counter -> /var/www/yggdrasilai/downloads.json (read by the website).
+# Counts DISTINCT downloader IPs that successfully fetched a ThorOS ISO, accumulated across time so it
+# survives Apache log rotation and only ever grows. Privacy: IPs are hashed (a short SHA-256 prefix),
+# never stored raw — this is plain server-side log counting, no client-side tracking. Run hourly as root.
+LOGDIR=/var/log/apache2
+STATE=/var/lib/yggdrasil/download-ips     # cumulative set of hashed downloader IPs
+OUT=/var/www/yggdrasilai/downloads.json
+mkdir -p "$(dirname "$STATE")"
+TMP=$(mktemp)
+{ cat "$LOGDIR"/yggdrasilai_access.log "$LOGDIR"/yggdrasilai_access.log.1 \
+      "$LOGDIR"/yggdrasilai_ssl_access.log "$LOGDIR"/yggdrasilai_ssl_access.log.1 2>/dev/null
+  zcat "$LOGDIR"/yggdrasilai_access.log.*.gz "$LOGDIR"/yggdrasilai_ssl_access.log.*.gz 2>/dev/null
+} > "$TMP"
+# distinct IPs that did a successful (200/206) GET of a ThorOS ISO -> hash -> merge into the set
+grep -F "ThorOS-" "$TMP" | grep "GET " | grep -E ' (200|206) ' | awk '{print $1}' | sort -u \
+  | while read -r ip; do [ -n "$ip" ] && printf '%s' "$ip" | sha256sum | cut -c1-16; done >> "$STATE"
+rm -f "$TMP"
+sort -u "$STATE" -o "$STATE" 2>/dev/null
+N=$(grep -c . "$STATE" 2>/dev/null || echo 0)
+printf '{"downloads": %d, "updated": "%s"}\n' "${N:-0}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$OUT"
+chmod 0644 "$OUT"
+echo "downloads: ${N:-0}"
