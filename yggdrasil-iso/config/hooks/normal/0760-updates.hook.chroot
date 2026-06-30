@@ -1,0 +1,7 @@
+#!/bin/sh
+# Wire up the self-update mechanism: make the helper + check scripts executable, lock down the
+# sudoers drop-in (must be 0440), and enable the daily 07:00 update check for every user.
+set -e
+chmod 0755 /usr/local/sbin/yggdrasil-update /usr/local/bin/yggdrasil-update-check
+chmod 0440 /etc/sudoers.d/yggdrasil-update
+systemctl --global enable yggdrasil-update-check.timer 2>/dev/null || true

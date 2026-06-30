@@ -1,0 +1,6 @@
+[Unit]
+Description=ThorOS update check
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/yggdrasil-update-check

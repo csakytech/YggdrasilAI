@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Update the ThorOS app in /opt/yggdrasil to a released tag (arg 1) or origin/main.
+# Runs as root via /etc/sudoers.d/yggdrasil-update. NON-DESTRUCTIVE: it swaps the app code only —
+# your data in ~/.config/yggdrasil, ~/.local/share/yggdrasil and your home is never touched.
+set -e
+APP=/opt/yggdrasil
+cd "$APP" 2>/dev/null || { echo "ThorOS app not found at $APP"; exit 1; }
+git config --global --add safe.directory "$APP" 2>/dev/null || true
+git fetch --tags --quiet origin || { echo "could not reach the update server"; exit 1; }
+TARGET="${1:-origin/main}"
+git reset --hard "$TARGET" >/dev/null 2>&1 || { echo "could not switch to $TARGET"; exit 1; }
+"$APP/venv/bin/pip" install -q -e "$APP" >/dev/null 2>&1 || true
+echo "updated to $(git describe --tags --always 2>/dev/null || git rev-parse --short HEAD)"

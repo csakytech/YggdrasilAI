@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# If a ThorOS update is available, open the Updates window so the user can choose to update now or
+# later. Silent if already up to date. Runs at login (autostart) and daily at 07:00 (systemd timer).
+sleep 8  # let the network settle, especially right after login
+[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || exit 0
+/opt/yggdrasil/venv/bin/python -c \
+  "from yggdrasil.core import updater; import sys; sys.exit(0 if updater.update_available() else 1)" \
+  || exit 0
+exec /opt/yggdrasil/venv/bin/python -m yggdrasil.ui.updater

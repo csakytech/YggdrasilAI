@@ -236,6 +236,22 @@ def _sched_ui_route(goal: str):
     return "hide" if m.group(1).lower() in ("close", "hide", "dismiss") else "show"
 
 
+# "check for updates" / "update yourself" -> the Update agent.
+_UPD_APPLY = re.compile(r"^\s*(?:can you |could you |please )?(?:update|upgrade)\s+"
+                        r"(?:yourself|thor ?os|the (?:system|os)|jarvis)\b|\binstall (?:the )?update\b", re.I)
+_UPD_CHECK = re.compile(r"\bcheck for updates?\b|\bare there (?:any )?updates?\b|"
+                        r"\bis there (?:an?|a new) (?:update|version)\b|\bany (?:new )?updates?\b", re.I)
+
+
+def _update_route(goal: str):
+    g = goal.strip()
+    if _UPD_APPLY.search(g):
+        return "apply"
+    if _UPD_CHECK.search(g):
+        return "check"
+    return None
+
+
 # Marketplace voice flow -> the Market agent. Routed deterministically (the planner is unreliable on
 # these meta-commands). Install/remove/browse REQUIRE the word "agent"/"module"/"marketplace" so they
 # never collide with installing an app (the future Software agent) or with general yes/no in chat.
@@ -408,6 +424,11 @@ class Orchestrator:
         if su:
             self._publish("")
             task = Task(action=f"schedule.{su}", agent="schedule", params={})
+            return self._render(task, await self._dispatch(task))
+        upd = _update_route(goal)  # "check for updates" / "update yourself" -> the Update agent
+        if upd:
+            self._publish("")
+            task = Task(action=f"update.{upd}", agent="update", params={})
             return self._render(task, await self._dispatch(task))
         if _SCHEDULE_RE.match(goal.strip()):  # "remind me…" / "schedule…" / "every weekday at 9…"
             self._publish("Scheduling…")

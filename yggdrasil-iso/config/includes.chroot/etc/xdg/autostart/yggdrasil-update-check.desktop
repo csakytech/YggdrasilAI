@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=ThorOS Update Check
+Comment=Check for ThorOS updates at login and offer them
+Exec=/usr/local/bin/yggdrasil-update-check
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

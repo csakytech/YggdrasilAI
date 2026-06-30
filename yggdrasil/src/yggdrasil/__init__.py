@@ -4,5 +4,5 @@ Phase 0/1 spine: orchestrator + permissioned agents + (stubbed) voice loop.
 See ../../docs/ARCHITECTURE.md for the design.
 """
 
-__version__ = "0.0.1"
+__version__ = "0.7"
 __codename__ = "Thor"  # release codename (Norse gods)

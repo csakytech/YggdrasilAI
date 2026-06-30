@@ -1,0 +1,3 @@
+# Let the desktop admin apply ThorOS app updates without a password (the helper only git-pulls
+# /opt/yggdrasil + pip-installs; it touches no user data). Members of the sudo group only.
+%sudo ALL=(root) NOPASSWD: /usr/local/sbin/yggdrasil-update, /usr/local/sbin/yggdrasil-update *

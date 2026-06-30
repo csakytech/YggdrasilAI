@@ -1,0 +1,13 @@
+{
+  "version": "0.7",
+  "tag": "v0.7",
+  "date": "2026-06-30",
+  "changelog": [
+    "Community marketplace — install AI agents by voice (sandboxed)",
+    "Turn plain requests into commands, run safely",
+    "Understands spoken file names; always confirms before deleting",
+    "Live Scheduled Tasks window",
+    "Self-hosted Matrix community chat",
+    "Self-update — no more reinstalling to get new features"
+  ]
+}
