@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 from typing import Awaitable, Callable
 
 from . import config, trace
+from . import models as models_mod
 from .bus import Bus, Result, Status, Task
 from .focus import active_window
 from .llm import LLMProvider
@@ -252,6 +253,51 @@ def _update_route(goal: str):
     return None
 
 
+# Model roles -> the Model agent ("what models do I have", "use qwen coder for coding",
+# "download the X model"). List/pull/status require the word model/LLM so they never hijack
+# ordinary requests; bind additionally requires a known role word ("for coding") plus a
+# model-ish target, so "use the terminal for coding" can't stage a model download.
+_MDL_ROLE_WORDS = "|".join(sorted(models_mod.ROLE_ALIASES, key=len, reverse=True))
+_MDL_LIST = re.compile(
+    r"\b(?:what|which|list|show)\b.{0,24}\b(?:models?|llms?)\b"
+    r"(?:.{0,26}\b(?:installed|do i have|have|available|downloaded)\b)?", re.I)
+_MDL_STATUS = re.compile(
+    r"\b(?:what|which)\s+(?:model|llm)\b.{0,32}\b(?:you use|you'?re using|are you using|"
+    r"do you use|handles?|runs?|is used)\b"
+    r"|\bhow(?:'s| is| far)\b.{0,28}\b(?:model|download)\b", re.I)
+_MDL_BIND = re.compile(
+    r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?(?:use|switch to|set)\s+"
+    r"(?:the\s+)?(.+?)\s+(?:model\s+)?(?:as|for)\s+(?:the\s+)?(" + _MDL_ROLE_WORDS + r")\b", re.I)
+_MDL_PULL_A = re.compile(r"\b(?:download|pull|fetch|get)\s+(?:the\s+|a\s+)?(.+?)\s+(?:model|llm)\b", re.I)
+_MDL_PULL_B = re.compile(r"\b(?:download|pull|fetch|get)\s+the\s+(?:model|llm)\s+(.+?)\s*$", re.I)
+_MDL_RESET = re.compile(r"\b(?:reset|go back to the default|back to default)\b.{0,26}\b(?:model|llm)\b"
+                        r"|\breset\b.{0,20}\b(?:" + _MDL_ROLE_WORDS + r")\s+(?:model|llm)\b", re.I)
+_MDL_MODELISH = re.compile(r"\d|qwen|llama|mistral|gemma|deepseek|phi|coder|granite|command-r", re.I)
+
+
+def _model_route(goal: str):
+    """Classify a model-management command into (verb, params), or None if it isn't one."""
+    g = goal.strip()
+    if _MDL_RESET.search(g):
+        return ("reset", {"argument": g})
+    m = _MDL_BIND.match(g)
+    if m:
+        target, role = m.group(1).strip(" .?"), m.group(2).lower()
+        if "default" in target.lower():
+            return ("reset", {"argument": role})
+        # only claim the phrase when the target actually sounds like a model
+        if re.search(r"\bmodel|llm\b", g, re.I) or _MDL_MODELISH.search(target):
+            return ("bind", {"argument": target, "role": role})
+    m = _MDL_PULL_A.search(g) or _MDL_PULL_B.search(g)
+    if m:
+        return ("pull", {"argument": m.group(1).strip(" .?")})
+    if _MDL_STATUS.search(g) and re.search(r"\bmodels?|llms?|download\b", g, re.I):
+        return ("status", {})
+    if _MDL_LIST.search(g):
+        return ("list", {})
+    return None
+
+
 # Marketplace voice flow -> the Market agent. Routed deterministically (the planner is unreliable on
 # these meta-commands). Install/remove/browse REQUIRE the word "agent"/"module"/"marketplace" so they
 # never collide with installing an app (the future Software agent) or with general yes/no in chat.
@@ -430,6 +476,15 @@ class Orchestrator:
             self._publish("")
             task = Task(action=f"update.{upd}", agent="update", params={})
             return self._render(task, await self._dispatch(task))
+        mdl = _model_route(goal)  # "what models do I have" / "use X for coding" / "download the X model"
+        if mdl:
+            verb, prms = mdl
+            self._publish("Models…")
+            task = Task(action=f"model.{verb}", agent="model", params=prms)
+            result = await self._dispatch(task)
+            if isinstance(result.data, dict) and result.data.get("await_confirm"):
+                self._pending_confirm = result.data.get("agent")  # the next yes/no answers this
+            return self._render(task, result)
         if _SCHEDULE_RE.match(goal.strip()):  # "remind me…" / "schedule…" / "every weekday at 9…"
             self._publish("Scheduling…")
             task = Task(action="schedule.add", agent="schedule", params={"argument": goal})

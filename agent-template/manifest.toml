@@ -23,6 +23,11 @@ homepage    = "https://github.com/yourname/thoros-notes-agent"
 sponsor     = "https://github.com/sponsors/yourname"      # optional — tip jar, not a paywall
 icon        = "icon.png"                     # optional, packaged alongside the manifest
 tags        = ["productivity", "example"]
+# Which CLASS of model should answer your agent's LLM calls. Never name a specific model —
+# name the JOB and ThorOS resolves it to whatever the user has bound (see core/models.py):
+#   "planner" | "reasoner" (default) | "coder" | "writer"
+# A programming agent should declare "coder" so it automatically uses the user's coding model.
+# model_role = "coder"
 
 # --- Routing -----------------------------------------------------------------
 # The planner routes "<domain>.<verb>" to this agent. Pick a clear, single domain.

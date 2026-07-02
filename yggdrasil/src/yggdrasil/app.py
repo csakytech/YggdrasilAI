@@ -13,6 +13,7 @@ from .agents.file_agent import FileAgent
 from .agents.focus_agent import FocusAgent
 from .agents.market_agent import MarketAgent
 from .agents.memory_agent import MemoryAgent
+from .agents.model_agent import ModelAgent
 from .agents.research_agent import ResearchAgent
 from .agents.scheduler_agent import SchedulerAgent
 from .agents.security_agent import SecurityAgent
@@ -41,12 +42,16 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     bus = LocalBus()
     perms = PermissionManager(DefaultPolicy(), channel)
 
+    # Model roles (core/models.py): agents ask for a JOB, the manager decides which model
+    # answers it. Unbound roles all resolve to YGGDRASIL_MODEL, so a fresh install behaves
+    # exactly as before; "use X for coding" upgrades one role without touching the rest.
     model = os.environ.get("YGGDRASIL_MODEL")
-    llm = None
+    llm = models = None
     if model:
-        from .core.llm import OllamaProvider
+        from .core.models import ModelManager
 
-        llm = OllamaProvider(model)
+        models = ModelManager(model)
+        llm = models.get("planner")  # pinned resident — it answers every utterance
 
     # Register the Core agents (these are our first dogfooded "modules"). On-disk module
     # loading + profiles plug in here later — see docs/MODULES.md.
@@ -56,10 +61,10 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(file_agent)
     registry.register(MemoryAgent(bus, perms, store))
     registry.register(SystemAgent(bus, perms))
-    registry.register(AppsAgent(bus, perms, llm, sandbox))
+    registry.register(AppsAgent(bus, perms, models.get("writer") if models else None, sandbox))
     registry.register(SecurityAgent(bus, perms, llm))
     registry.register(CommandAgent(bus, perms))
-    registry.register(TaskAgent(bus, perms, llm, sandbox))
+    registry.register(TaskAgent(bus, perms, models.get("coder") if models else None, sandbox))
     registry.register(FocusAgent(bus, perms))
     registry.register(DocumentsAgent(bus, perms))
     registry.register(ExplainAgent(bus, perms, llm))
@@ -69,12 +74,13 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     market = MarketAgent(bus, perms, llm)
     registry.register(market)
     registry.register(UpdateAgent(bus, perms, llm))
+    registry.register(ModelAgent(bus, perms, models))
 
     # Installed marketplace agents. In-process for now (trusted/verified only — the sandbox lands
     # before untrusted packets). Core domains are reserved so a packet can't hijack 'file'/'system'/…
     from .core import modules
     reserved = {a.domain for a in registry.agents}
-    for agent in modules.load_installed(bus, perms, llm, reserved_domains=reserved):
+    for agent in modules.load_installed(bus, perms, llm, reserved_domains=reserved, models=models):
         registry.register(agent)
 
     await registry.start_all()
@@ -92,7 +98,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     # the new agent is usable immediately (LLMPlanner reads allowed_actions/examples on every plan()).
     async def _reload_modules():
         have = {a.domain for a in registry.agents}
-        for ag in modules.load_installed(bus, perms, llm, reserved_domains=reserved):
+        for ag in modules.load_installed(bus, perms, llm, reserved_domains=reserved, models=models):
             if ag.domain not in have:
                 registry.register(ag)
                 await ag.start()
@@ -101,6 +107,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
             planner.examples = registry.planner_examples()
     market.on_change = _reload_modules
 
-    orch = Orchestrator(bus, perms, planner, auth_resolver, memory=store, llm=llm,
+    orch = Orchestrator(bus, perms, planner, auth_resolver, memory=store,
+                        llm=models.get("reasoner") if models else None,
                         assistant_name=name, activity=Activity())
     return bus, orch, file_agent, store, name

@@ -161,11 +161,15 @@ def _find_manifest_root(base: Path) -> Path:
     raise ValueError("downloaded packet has no manifest.toml")
 
 
-def load_installed(bus, perms, llm=None, reserved_domains=()) -> list:
+def load_installed(bus, perms, llm=None, reserved_domains=(), models=None) -> list:
     """Load each installed agent so the registry can register it. Verified/official agents load
     in-process (trusted); everything else runs sandboxed (bubblewrap). An untrusted packet is REFUSED
     if the sandbox is unavailable — never silently downgraded to in-process. ``reserved_domains`` are
     taken by Core agents, so a packet can't hijack 'file', 'system', etc.
+
+    With a ``core.models.ModelManager`` given, a packet whose manifest declares
+    ``[agent] model_role = "coder"`` gets THAT role's model (a coding agent gets the coder
+    model, etc.); otherwise it gets the default ``llm``.
     """
     out = []
     for meta in installed():
@@ -174,11 +178,20 @@ def load_installed(bus, perms, llm=None, reserved_domains=()) -> list:
             print(f"[modules] skip {mid}: domain '{meta['domain']}' is reserved", file=sys.stderr)
             continue
         tier = meta.get("tier", "community")
+        agent_llm = llm
+        if models is not None:
+            try:
+                m = _load_manifest(modules_dir() / mid / "manifest.toml")
+                role = (m.get("agent") or {}).get("model_role")
+                if role:
+                    agent_llm = models.get(role)
+            except Exception:
+                pass
         try:
             if tier in ("verified", "official"):
-                out.append(_load_one(mid, bus, perms, llm))            # trusted -> in-process
+                out.append(_load_one(mid, bus, perms, agent_llm))            # trusted -> in-process
             else:
-                out.append(_load_sandboxed(mid, bus, perms, llm, tier))  # untrusted -> bubblewrap
+                out.append(_load_sandboxed(mid, bus, perms, agent_llm, tier))  # untrusted -> bubblewrap
         except Exception as e:  # one bad packet must not stop the assistant from starting
             print(f"[modules] failed to load {mid}: {e!r}", file=sys.stderr)
     return [a for a in out if a is not None]

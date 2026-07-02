@@ -60,6 +60,10 @@ class OllamaProvider(LLMProvider):
     def __init__(self, model: str, host: str = "http://127.0.0.1:11434") -> None:
         self.model = model
         self.host = host.rstrip("/")
+        # Per-model residency policy (core.models sets this): -1 pins the model in VRAM
+        # (the planner — it answers every utterance), "10m" lets a specialist idle out.
+        # None = leave it to the daemon's OLLAMA_KEEP_ALIVE.
+        self.keep_alive: Any = None
 
     async def generate(self, *, system, prompt, schema=None, temperature=0.2):
         import json
@@ -75,6 +79,8 @@ class OllamaProvider(LLMProvider):
                 {"role": "user", "content": prompt},
             ],
         }
+        if self.keep_alive is not None:
+            payload["keep_alive"] = self.keep_alive
         # Ollama 0.30+ surfaces qwen3-style chain-of-thought as a separate channel. The old
         # ``/no_think`` prompt trick no longer disables it, so the model reasons before every reply —
         # pure latency for our direct-answer prompts (and it can starve a length-capped response).
