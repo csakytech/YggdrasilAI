@@ -10,4 +10,8 @@ git fetch --tags --quiet origin || { echo "could not reach the update server"; e
 TARGET="${1:-origin/main}"
 git reset --hard "$TARGET" >/dev/null 2>&1 || { echo "could not switch to $TARGET"; exit 1; }
 "$APP/venv/bin/pip" install -q -e "$APP" >/dev/null 2>&1 || true
+# Release migrations: a release may ship system-level steps (e.g. install a missing package).
+# We're already root here; the script comes from the SAME signed-off release the user consented
+# to install, and a failure must never break the app update itself.
+[ -x "$APP/ops/post-update.sh" ] && bash "$APP/ops/post-update.sh" >/dev/null 2>&1 || true
 echo "updated to $(git describe --tags --always 2>/dev/null || git rev-parse --short HEAD)"

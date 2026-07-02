@@ -45,6 +45,13 @@ jq
 pciutils
 git
 
+# --- Time sync (CRITICAL for TLS) ---
+# Debian's minimal set does NOT include an NTP client. Without one, a machine with a drifted or
+# dead-CMOS-battery clock fails ALL certificate validation — HTTPS, git, research agent, and the
+# self-updater (which then can't even deliver a fix). Found live on the .41 test box (clock said
+# April, RTC said 2018 -> github unreachable). systemd preset auto-enables the service on install.
+systemd-timesyncd
+
 # --- Remote access ---
 # SSH so installed machines are reachable on the LAN. Build-time host keys are stripped and
 # regenerated per-machine on first boot (hooks/0750 + regen-ssh-host-keys.service) so no two
