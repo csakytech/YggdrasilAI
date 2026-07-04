@@ -31,3 +31,4 @@ _whitepaper_extracted.txt
 
 # stray nested checkout (do not track)
 /YggdrasilOS/
+outreach/
