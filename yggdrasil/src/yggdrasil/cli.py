@@ -38,13 +38,15 @@ async def console_auth_resolver(challenge: AuthChallenge) -> str:
 
 
 def build_speaker():
-    """Optional voice output: set YGGDRASIL_VOICE_MODEL to a Piper .onnx file to hear replies."""
-    model = os.environ.get("YGGDRASIL_VOICE_MODEL")
+    """Optional voice output: the chosen voice from config, or YGGDRASIL_VOICE_MODEL."""
+    from .core import voices
+
+    model = voices.active_path()
     if not model:
         return None
     from .voice.tts import Speaker
 
-    return Speaker(model)
+    return Speaker(model, voice_source=voices.active_path)
 
 
 async def main_async() -> None:

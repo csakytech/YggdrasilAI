@@ -59,3 +59,14 @@ def set_name(name: str) -> str:
 
 def get_wake_mode() -> str:
     return (os.environ.get("YGGDRASIL_WAKE_MODE") or _raw().get("wake_mode") or _DEFAULT_MODE).lower()
+
+
+def get_voice() -> str:
+    """The chosen voice id (e.g. 'en_US-ryan-high'); '' = whatever the launcher provides."""
+    return _raw().get("voice") or ""
+
+
+def set_voice(voice_id: str) -> None:
+    cfg = _raw()
+    cfg["voice"] = voice_id
+    _save(cfg)

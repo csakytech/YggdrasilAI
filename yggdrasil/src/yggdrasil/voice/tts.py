@@ -42,12 +42,15 @@ def _resolve_piper(explicit: str | None) -> list[str]:
 class Speaker:
     """Synthesize speech with Piper and play it through PipeWire."""
 
-    def __init__(self, voice_model, piper_bin=None, player="pw-play") -> None:
+    def __init__(self, voice_model, piper_bin=None, player="pw-play", voice_source=None) -> None:
         self.voice = str(Path(voice_model).expanduser())
         if not Path(self.voice).is_file():
             raise FileNotFoundError(f"Piper voice model not found: {self.voice}")
         self.piper_cmd = _resolve_piper(piper_bin)
         self.player = player
+        # Optional live lookup (core.voices.active_path): re-checked before each utterance, so
+        # "use the Ryan voice" changes the voice on the very next sentence — no restart.
+        self.voice_source = voice_source
         self._env = _audio_env()
         self._warned = False
         self._lock = threading.Lock()  # the scheduler speaks from its own thread — serialize playback
@@ -72,6 +75,13 @@ class Speaker:
         text = (text or "").strip()
         if not text:
             return
+        if self.voice_source:
+            try:
+                cur = self.voice_source()
+                if cur and cur != self.voice and Path(cur).is_file():
+                    self.voice = cur
+            except Exception:
+                pass
         with self._lock:
             wav = None
             try:
@@ -95,3 +105,23 @@ class Speaker:
                         os.unlink(wav)
                     except OSError:
                         pass
+
+
+def _main() -> None:
+    """Speak a line in a given voice — used for voice previews (picker window + voice agent):
+    ``python -m yggdrasil.voice.tts [--delay N] <voice.onnx> <text...>``"""
+    import argparse
+    import time
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--delay", type=float, default=0.0)
+    ap.add_argument("model")
+    ap.add_argument("text", nargs="+")
+    args = ap.parse_args()
+    if args.delay > 0:
+        time.sleep(args.delay)
+    Speaker(args.model).say(" ".join(args.text))
+
+
+if __name__ == "__main__":
+    _main()

@@ -20,6 +20,7 @@ from .agents.security_agent import SecurityAgent
 from .agents.system_agent import SystemAgent
 from .agents.task_agent import TaskAgent
 from .agents.update_agent import UpdateAgent
+from .agents.voice_agent import VoiceAgent
 from .agents.writer_agent import WriterAgent
 from .core import config
 from .core.activity import Activity
@@ -75,6 +76,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(market)
     registry.register(UpdateAgent(bus, perms, llm))
     registry.register(ModelAgent(bus, perms, models))
+    registry.register(VoiceAgent(bus, perms))
 
     # Installed marketplace agents. In-process for now (trusted/verified only — the sandbox lands
     # before untrusted packets). Core domains are reserved so a packet can't hijack 'file'/'system'/…

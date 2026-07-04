@@ -233,16 +233,19 @@ def _ends_conversation(text: str) -> bool:
 
 
 def main() -> None:
-    voice_model = os.environ.get("YGGDRASIL_VOICE_MODEL")
+    from ..core import voices
+
+    voice_model = voices.active_path()  # config choice -> YGGDRASIL_VOICE_MODEL -> any installed
     if not voice_model:
-        print("Set YGGDRASIL_VOICE_MODEL to a Piper .onnx voice file.", file=sys.stderr)
+        print("No voice installed — set YGGDRASIL_VOICE_MODEL to a Piper .onnx voice file.",
+              file=sys.stderr)
         sys.exit(2)
     from ..app import build_orchestrator
     from ..core.permissions import AuthChallenge, UserChannel
     from .stt import Recognizer
     from .tts import Speaker
 
-    speaker = Speaker(voice_model)
+    speaker = Speaker(voice_model, voice_source=voices.active_path)
     recognizer = Recognizer()
     holder: dict = {}
 

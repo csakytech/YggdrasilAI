@@ -297,6 +297,45 @@ _MDL_RESET = re.compile(r"\b(?:reset|go back to the default|back to default)\b.{
 _MDL_MODELISH = re.compile(r"\d|qwen|llama|mistral|gemma|deepseek|phi|coder|granite|command-r", re.I)
 
 
+# Voice management -> the Voice agent. Every pattern requires the word "voice(s)", so none of
+# this can hijack ordinary requests. "Change your voice" (no target) opens the PICKER — seeing
+# and previewing the options beats guessing a name.
+_VOICE_CLOSE = re.compile(r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?"
+                          r"(?:close|hide|dismiss)\b.{0,24}\bvoices?\b", re.I)
+_VOICE_TO = re.compile(r"\bchange (?:your|the) voice to\s+(.+?)\s*[.?!]?\s*$", re.I)
+_VOICE_USE = re.compile(r"\b(?:use|switch to|speak (?:with|in)|talk (?:with|in))\s+"
+                        r"(?:the\s+|a\s+)?(.+?)\s+voice\b", re.I)
+_VOICE_PREVIEW = re.compile(r"\b(?:preview|try|demo|play|let me hear|hear)\s+(?:the\s+|a\s+)?(.+?)\s+voice\b"
+                            r"|\bwhat does\s+(?:the\s+)?(.+?)\s+(?:voice\s+)?sound like\b", re.I)
+_VOICE_STATUS = re.compile(r"\b(?:what|which) voice (?:are you using|do you use|is (?:that|this))\b"
+                           r"|\bhow(?:'s| is)\b.{0,20}\bvoice download\b", re.I)
+_VOICE_OPEN = re.compile(
+    r"\bchange (?:your|the) voice\b|\b(?:what|which) voices?\b|\bshow (?:me )?(?:the |your )?voices?\b|"
+    r"\bopen (?:the )?voices?(?: manager| picker| window| settings)?\b|\blist (?:the |your )?voices\b|"
+    r"\b(?:pick|choose) a (?:new |different )?voice\b|\bsound different\b", re.I)
+
+
+def _voice_route(goal: str):
+    """Classify a voice-management command into (verb, argument), or None."""
+    g = goal.strip()
+    if _VOICE_CLOSE.search(g):
+        return ("close", "")
+    m = _VOICE_TO.search(g)
+    if m:
+        return ("use", m.group(1).strip(" .?"))
+    m = _VOICE_USE.search(g)
+    if m:
+        return ("use", m.group(1).strip(" .?"))
+    m = _VOICE_PREVIEW.search(g)
+    if m:
+        return ("preview", (m.group(1) or m.group(2) or "").strip(" .?"))
+    if _VOICE_STATUS.search(g):
+        return ("status", "")
+    if _VOICE_OPEN.search(g):
+        return ("open", "")
+    return None
+
+
 def _model_route(goal: str):
     """Classify a model-management command into (verb, params), or None if it isn't one."""
     g = goal.strip()
@@ -473,7 +512,14 @@ class Orchestrator:
             raw = _RENAME_TRAIL.sub("", rn.group(1))
             raw = re.sub(r"\b(please|thanks|thank you|now|okay|ok)\b", "", raw, flags=re.I)
             new = config.set_name(raw)
-            return f"Okay — I'm {new} now. Just say “{new}” to get my attention."
+            reply = f"Okay — I'm {new} now. Just say “{new}” to get my attention."
+            # A new name often wants a new voice — show the options and let the USER decide
+            # (each row has a Preview button; nothing changes unless they pick one).
+            from . import voices
+            if voices.open_picker():
+                reply += (" I've also put my voices on screen — if you'd like me to sound "
+                          "different too, preview one and say, for example, “use the Ryan voice”.")
+            return reply
         mkt = _market_route(goal)  # "install the X agent" / "what agents are available" / "yes install it"
         if mkt:
             verb, arg = mkt
@@ -512,6 +558,15 @@ class Orchestrator:
             result = await self._dispatch(task)
             if isinstance(result.data, dict) and result.data.get("await_confirm"):
                 self._pending_confirm = result.data.get("agent")  # the next yes/no answers this
+            return self._render(task, result)
+        vc = _voice_route(goal)  # "change your voice" / "use the ryan voice" / "preview amy"
+        if vc:
+            verb, arg = vc
+            self._publish("Voices…")
+            task = Task(action=f"voice.{verb}", agent="voice", params={"argument": arg})
+            result = await self._dispatch(task)
+            if isinstance(result.data, dict) and result.data.get("await_confirm"):
+                self._pending_confirm = result.data.get("agent")
             return self._render(task, result)
         if _SCHEDULE_RE.match(goal.strip()):  # "remind me…" / "schedule…" / "every weekday at 9…"
             self._publish("Scheduling…")
