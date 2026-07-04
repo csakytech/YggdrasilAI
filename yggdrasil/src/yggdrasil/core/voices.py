@@ -53,10 +53,31 @@ _dl_lock = threading.Lock()
 
 
 def voices_dir() -> Path:
+    """Where downloads go (user-owned)."""
     return Path(os.environ.get("YGGDRASIL_VOICES_DIR") or (Path.home() / "yggdrasil-voices"))
 
 
+def _search_dirs() -> list[Path]:
+    """All places a voice may live: the download dir, the ISO's baked default
+    (/opt/yggdrasil/voices), and wherever the launcher env points."""
+    dirs = [voices_dir(), Path("/opt/yggdrasil/voices")]
+    env = os.environ.get("YGGDRASIL_VOICE_MODEL")
+    if env:
+        dirs.append(Path(env).expanduser().parent)
+    seen, out = set(), []
+    for d in dirs:
+        if d not in seen:
+            seen.add(d)
+            out.append(d)
+    return out
+
+
 def path_for(vid: str) -> Path:
+    """The existing file for a voice (searched everywhere), else its download target."""
+    for d in _search_dirs():
+        p = d / f"{vid}.onnx"
+        if p.is_file():
+            return p
     return voices_dir() / f"{vid}.onnx"
 
 
@@ -67,10 +88,13 @@ def url_for(vid: str) -> str:
 
 
 def installed() -> list[str]:
-    try:
-        return sorted(p.stem for p in voices_dir().glob("*.onnx"))
-    except OSError:
-        return []
+    out: set[str] = set()
+    for d in _search_dirs():
+        try:
+            out.update(p.stem for p in d.glob("*.onnx"))
+        except OSError:
+            pass
+    return sorted(out)
 
 
 def active_path() -> Optional[str]:
