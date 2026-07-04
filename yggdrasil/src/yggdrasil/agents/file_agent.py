@@ -39,6 +39,9 @@ class FileAgent(BaseAgent):
         'move notes.txt to reports -> {"steps":[{"action":"file.move","argument":"notes.txt","argument2":"reports"}]}',
         'rename notes.txt to todo.txt -> {"steps":[{"action":"file.rename","argument":"notes.txt","argument2":"todo.txt"}]}',
         'open reports -> {"steps":[{"action":"file.open","argument":"reports"}]}',
+        'show me the reports folder -> {"steps":[{"action":"file.open","argument":"reports"}]}',
+        'show me those directories -> {"steps":[{"action":"file.open","argument":""}]}',
+        'read out what is in reports -> {"steps":[{"action":"file.list","argument":"reports"}]}',
         'make notes.txt executable -> {"steps":[{"action":"file.permissions","argument":"notes.txt","argument2":"executable"}]}',
         'delete reports -> {"steps":[{"action":"file.delete","argument":"reports"}]}',
     ]

@@ -190,11 +190,23 @@ _EXPLAIN_RE = re.compile(
 
 # "Call yourself Athena" — rename the assistant (the name is also the wake word). Pre-checked so
 # it's reliable, and so the new name takes effect immediately.
+# Rename must catch polite/wordy phrasings ("CAN YOU change your name to Data SO THAT you're
+# known as Data FROM NOW ON") — if it slips through to the LLM, the model tends to invent a
+# "I can't change my name" limitation that doesn't exist. Trailing purpose-clauses are cut
+# from the captured name by _RENAME_TRAIL.
 _RENAME_RE = re.compile(
-    r"^\s*(?:change your name to|call yourself|rename yourself to|set your name to|"
-    r"your name (?:is|will be)(?: now)?|from now on,?\s+(?:you'?re|your name is)|i'?ll call you)\s+(.+)$",
+    r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |will you |would you |please |i want you to )*"
+    r"(?:change your name to|call yourself|rename yourself(?: to| as)?|set your name to|"
+    r"your name (?:is|will be)(?: now)?|from now on,?\s+(?:you'?re|your name is|call yourself)|"
+    r"i(?:'?ll| will| want to| wanna) call you|we(?:'?ll| will) call you|"
+    r"you(?:'?ll| will| should| can)? ?(?:now )?(?:be|are) (?:called|named|known as)|"
+    r"go by(?: the name(?: of)?)?)\s+(.+)$",
     re.I,
 )
+# Cut "so that…", "from now on", etc. off the captured name ("Data so that…" -> "Data").
+_RENAME_TRAIL = re.compile(
+    r"\b(?:so that|so you|so we|so i|because|since|instead|from now on|that way|going forward|"
+    r"and (?:answer|respond|reply))\b.*$", re.I)
 
 # Current-info questions ("price of bitcoin", "weather in Seattle", "news on Tesla") go to the
 # Research agent deterministically — the planner is flaky on these and might answer from stale model
@@ -228,6 +240,16 @@ _SCHEDULE_RE = re.compile(
 _SCHED_UI_RE = re.compile(
     r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?"
     r"(show|open|display|view|pull up|bring up|see|close|hide|dismiss)\b.{0,30}?\bschedul", re.I)
+
+
+# "SHOW me X" is a request to SEE something -> open the file manager (file.open), never a spoken
+# listing. ("Read out / what's in X" stays spoken via file.list.) Requires an explicit
+# folder/directory/file word so it can't hijack "show me the weather" or "show my agents".
+_SHOW_FILES_RE = re.compile(
+    r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please |would you )?"
+    r"(?:show (?:me|us)?|pull up|bring up)\s+(?:the |those |these |that |this |my )*"
+    r"(.*?)\s*(folders?|director(?:y|ies)|files?)\s*(?:again\s*)?[.?!]?\s*$", re.I)
+_SHOW_VAGUE = {"", "them", "all", "all of them", "all the", "everything"}
 
 
 def _sched_ui_route(goal: str):
@@ -448,7 +470,8 @@ class Orchestrator:
         rn = _RENAME_RE.match(goal.strip())
         if rn:  # "call yourself Athena" -> rename (the name is also the wake word)
             self._publish("")
-            raw = re.sub(r"\b(please|thanks|thank you|now|okay|ok)\b", "", rn.group(1), flags=re.I)
+            raw = _RENAME_TRAIL.sub("", rn.group(1))
+            raw = re.sub(r"\b(please|thanks|thank you|now|okay|ok)\b", "", raw, flags=re.I)
             new = config.set_name(raw)
             return f"Okay — I'm {new} now. Just say “{new}” to get my attention."
         mkt = _market_route(goal)  # "install the X agent" / "what agents are available" / "yes install it"
@@ -470,6 +493,11 @@ class Orchestrator:
         if su:
             self._publish("")
             task = Task(action=f"schedule.{su}", agent="schedule", params={})
+            return self._render(task, await self._dispatch(task))
+        sf = self._show_files_route(goal)  # "show me those directories" -> the file manager
+        if sf is not None:
+            self._publish("Opening…")
+            task = Task(action="file.open", agent="file", params={"path": sf})
             return self._render(task, await self._dispatch(task))
         upd = _update_route(goal)  # "check for updates" / "update yourself" -> the Update agent
         if upd:
@@ -573,6 +601,23 @@ class Orchestrator:
         resp = await self.llm.generate(system=system, prompt=goal, temperature=0.4)
         return (_THINK.sub("", resp.text).strip()
                 or "Let me help another way — tell me what you're trying to get done.")
+
+    def _show_files_route(self, goal: str) -> str | None:
+        """'Show me those directories' -> the path to open in the file manager, or None if this
+        isn't a show-files request. Vague targets ('those folders') resolve via the last path we
+        touched: plural opens its parent (so all the just-created siblings are visible)."""
+        m = _SHOW_FILES_RE.match(goal.strip())
+        if not m:
+            return None
+        name = (m.group(1) or "").strip(" ,.").lower()
+        if name in _SHOW_VAGUE:
+            if not self._last_path:
+                return ""  # the workspace root
+            kw = m.group(2).lower()
+            plural = kw.endswith("s") or "ies" in kw
+            import os.path
+            return os.path.dirname(self._last_path) if plural else self._last_path
+        return m.group(1).strip(" ,.")
 
     def _rewrite_pronouns(self, goal: str) -> str:
         if self._last_path:
