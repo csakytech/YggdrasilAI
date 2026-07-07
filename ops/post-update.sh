@@ -12,4 +12,13 @@ if ! dpkg -s systemd-timesyncd >/dev/null 2>&1; then
 fi
 systemctl enable --now systemd-timesyncd >/dev/null 2>&1 || true
 
+# --- v0.9: the HUD launcher was never shipped ----------------------------------------------
+# /etc/xdg/autostart/yggdrasil-hud.desktop Execs `yggdrasil-hud`, but the launcher itself
+# was missing from every ISO — so the "Thinking…" status strip silently never started.
+# Install it from the repo checkout; the autostart picks it up at next login.
+HUD_SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/local/bin/yggdrasil-hud
+if [ -f "$HUD_SRC" ] && [ ! -x /usr/local/bin/yggdrasil-hud ]; then
+    install -m 755 "$HUD_SRC" /usr/local/bin/yggdrasil-hud || true
+fi
+
 exit 0

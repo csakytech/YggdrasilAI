@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Yggdrasil HUD launcher — the bottom-of-screen "Thinking…" status strip.
+# Autostarted at login (/etc/xdg/autostart/yggdrasil-hud.desktop). Runs on the SYSTEM
+# python3 (python3-gi / GTK3 come from apt, not the app venv); the app code is imported
+# straight from the /opt/yggdrasil checkout, so self-updates update the HUD too.
+export PYTHONPATH="/opt/yggdrasil/yggdrasil/src${PYTHONPATH:+:$PYTHONPATH}"
+exec /usr/bin/python3 -m yggdrasil.ui.hud
