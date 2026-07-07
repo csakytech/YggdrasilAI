@@ -7,6 +7,7 @@ persisted memory — so it can hold a conversation and "know" the user across se
 from __future__ import annotations
 
 import copy
+import os
 import re
 import sys
 from abc import ABC, abstractmethod
@@ -88,7 +89,11 @@ _PLANNER_BASE = (
     "You are Yggdrasil's task planner. Output JSON only: an ordered list of steps using ONLY "
     "the allowed actions, each with an 'argument' (a folder name, or the thing to remember). "
     "If the request is a question, greeting, or small talk — NOT an action — return an empty "
-    "steps list. Examples:"
+    "steps list. "
+    "FINISH THE GOAL, not just the setup: the user states an outcome, you handle the "
+    "logistics AND deliver the outcome. If they want to start DOING something (writing, "
+    "browsing, editing), the LAST step opens the tool or thing they need — folders alone "
+    "leave them stranded. Examples:"
 )
 # Negative examples are always present; positive examples come from the active agents (so
 # installing an agent extends the planner — see core/registry.py and docs/MODULES.md §9).
@@ -240,6 +245,16 @@ _SCHEDULE_RE = re.compile(
 _SCHED_UI_RE = re.compile(
     r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?"
     r"(show|open|display|view|pull up|bring up|see|close|hide|dismiss)\b.{0,30}?\bschedul", re.I)
+
+
+# "Open the directory WHERE YOU PLACED those files" / "the folder you just made" -> the common
+# parent of what this session created. References to my OWN recent work must never fail with
+# "couldn't find that directory" — I know exactly what I made.
+_WHERE_CREATED_RE = re.compile(
+    r"\b(?:open|show(?: me| us)?|go to|take me to|bring up|pull up)\b.{0,50}?"
+    r"(?:\bwhere\b.{0,30}\b(?:placed|created|put|saved|made)\b"
+    r"|\b(?:director(?:y|ies)|folders?|files?)\b.{0,20}\byou (?:just )?(?:placed|created|put|saved|made)\b)",
+    re.I)
 
 
 # "SHOW me X" is a request to SEE something -> open the file manager (file.open), never a spoken
@@ -467,6 +482,7 @@ class Orchestrator:
         self.assistant_name = assistant_name
         self.activity = activity  # publishes "what I'm doing" for the HUD/dashboard
         self._last_path: str | None = None
+        self._recent_created: list[str] = []  # paths created this session — "those files you made"
         self._pending_confirm: str | None = None  # an agent awaiting a spoken yes/no (e.g. file delete)
 
     def _publish(self, text: str) -> None:
@@ -545,6 +561,13 @@ class Orchestrator:
             self._publish("")
             task = Task(action=f"schedule.{su}", agent="schedule", params={})
             return self._render(task, await self._dispatch(task))
+        if _WHERE_CREATED_RE.search(goal):  # "open the directory where you placed those files"
+            root = self._recent_root()
+            if root is not None or self._last_path:
+                self._publish("Opening…")
+                target = root if root is not None else os.path.dirname(self._last_path)
+                task = Task(action="file.open", agent="file", params={"path": target})
+                return self._render(task, await self._dispatch(task))
         sf = self._show_files_route(goal)  # "show me those directories" -> the file manager
         if sf is not None:
             self._publish("Opening…")
@@ -582,6 +605,10 @@ class Orchestrator:
             task = Task(action="research.lookup", agent="research", params={"argument": goal})
             return self._render(task, await self._dispatch(task))
         ctx = self.memory.context() if self.memory else ""
+        if self._recent_created:  # session awareness: the planner can resolve "the book folder",
+            ctx += ("\nFolders/files you created earlier in this session (references like "
+                    "'those files' or 'the folder you made' mean these): "
+                    + ", ".join(self._recent_created[-8:]))
         self._publish("Thinking…")
         active = active_window()
         tasks = await self.planner.plan(goal, memory_context=ctx, active=active)
@@ -602,6 +629,9 @@ class Orchestrator:
                 self._pending_confirm = result.data.get("agent")  # the next yes/no answers this
             if result.status is Status.OK and task.params.get("path"):
                 self._last_path = task.params["path"]
+                if task.action in ("file.create_folder", "file.create_file", "file.write_file"):
+                    self._recent_created.append(task.params["path"])
+                    del self._recent_created[:-20]  # keep the tail
             steps.append({
                 "action": task.action,
                 "arg": (task.params.get("argument") or task.params.get("path")
@@ -662,15 +692,31 @@ class Orchestrator:
         return (_THINK.sub("", resp.text).strip()
                 or "Let me help another way — tell me what you're trying to get done.")
 
+    def _recent_root(self) -> str | None:
+        """The folder that holds everything created this session ('where you put those files'):
+        the common parent of the recently created paths."""
+        if not self._recent_created:
+            return None
+        import posixpath
+        paths = [p.strip("/").replace("\\", "/") for p in self._recent_created]
+        try:
+            root = posixpath.commonpath(paths) if len(paths) > 1 else paths[0]
+        except ValueError:
+            return ""
+        return root
+
     def _show_files_route(self, goal: str) -> str | None:
         """'Show me those directories' -> the path to open in the file manager, or None if this
-        isn't a show-files request. Vague targets ('those folders') resolve via the last path we
-        touched: plural opens its parent (so all the just-created siblings are visible)."""
+        isn't a show-files request. Vague targets ('those folders') resolve via what this session
+        created (their common parent), falling back to the last path touched."""
         m = _SHOW_FILES_RE.match(goal.strip())
         if not m:
             return None
         name = (m.group(1) or "").strip(" ,.").lower()
         if name in _SHOW_VAGUE:
+            root = self._recent_root()
+            if root is not None:
+                return root
             if not self._last_path:
                 return ""  # the workspace root
             kw = m.group(2).lower()

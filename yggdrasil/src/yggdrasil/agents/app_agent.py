@@ -109,6 +109,13 @@ class AppsAgent(BaseAgent):
         'open firefox -> {"steps":[{"action":"app.launch","argument":"firefox"}]}',
         'open the dashboard -> {"steps":[{"action":"app.launch","argument":"dashboard"}]}',
         'open a word editor -> {"steps":[{"action":"app.launch","argument":"word editor"}]}',
+        # Goal-oriented: "set me up to X" ends with the TOOL OPEN, not just folders made.
+        'help me set up so I can write a book -> {"steps":[{"action":"file.create_folder","argument":"Book"},'
+        '{"action":"file.create_folder","argument":"Book/Chapters"},'
+        '{"action":"file.create_folder","argument":"Book/Notes"},'
+        '{"action":"app.launch","argument":"libreoffice writer"}]}',
+        'set up a place for my recipes so I can add one -> {"steps":[{"action":"file.create_folder","argument":"Recipes"},'
+        '{"action":"app.launch","argument":"libreoffice writer"}]}',
         'write a short story about a dragon -> {"steps":[{"action":"app.write_document","argument":"a short story about a dragon"}]}',
         'write a poem about the sea -> {"steps":[{"action":"app.write_document","argument":"a poem about the sea"}]}',
         'what apps are installed -> {"steps":[{"action":"app.list_apps","argument":""}]}',
