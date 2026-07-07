@@ -36,6 +36,26 @@ NO_SPEECH_GIVEUP_S = 4.0
 CONVERSATION_WINDOW_S = 10.0
 
 
+def _wake_display() -> None:
+    """Light the screen back up when spoken to. Speaking to the assistant IS user activity,
+    but GNOME only counts mouse/keyboard — so the display blanks mid-conversation and stays
+    dark while commands run. Simulate activity over D-Bus (GNOME, Wayland or X11) and force
+    the panel on via DPMS as an X11 fallback. Fire-and-forget: never blocks, never raises."""
+    if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
+        return
+    import subprocess
+    for cmd in (
+        ["gdbus", "call", "--session", "--dest", "org.gnome.ScreenSaver",
+         "--object-path", "/org/gnome/ScreenSaver",
+         "--method", "org.gnome.ScreenSaver.SimulateUserActivity"],
+        ["xset", "dpms", "force", "on"],  # X11 only; harmless no-op elsewhere
+    ):
+        try:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+
 def _wakeword_path(name: str) -> str:
     import openwakeword as ow
 
@@ -150,10 +170,12 @@ class VoiceAssistant:
                     continue
                 if in_convo:
                     command = text  # follow-up within the conversation window — no name needed
+                    _wake_display()
                 else:
                     command = self._strip_name(text)
                     if command is None:
                         continue  # speech not addressed to us — ignore
+                    _wake_display()  # spoken to by name -> screen on, like a mouse-wiggle
                     if not command:  # only the name was spoken
                         self.speaker.say("Yes?")
                         command = self.capture_text()
@@ -192,6 +214,7 @@ class VoiceAssistant:
                     if score < self.wake_threshold:
                         continue
                     print(f"[wake {score:.2f}]", flush=True)
+                _wake_display()  # woken by voice -> screen on, like a mouse-wiggle
                 text = self.capture_text(prefill=frame)  # LISTENING
                 self.wake.reset()
                 if not text:
