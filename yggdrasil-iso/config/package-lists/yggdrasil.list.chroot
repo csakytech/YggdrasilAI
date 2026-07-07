@@ -64,6 +64,9 @@ openssh-server
 wmctrl
 xdotool
 x11-utils
+# xset — wake the display when the user speaks (voice/loop.py _wake_display); present as a
+# dependency today but named explicitly because we rely on it
+x11-xserver-utils
 # PyGObject + GTK3 typelib for the dashboard / HUD / chat window
 python3-gi
 gir1.2-gtk-3.0

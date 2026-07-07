@@ -39,21 +39,26 @@ CONVERSATION_WINDOW_S = 10.0
 def _wake_display() -> None:
     """Light the screen back up when spoken to. Speaking to the assistant IS user activity,
     but GNOME only counts mouse/keyboard — so the display blanks mid-conversation and stays
-    dark while commands run. Simulate activity over D-Bus (GNOME, Wayland or X11) and force
-    the panel on via DPMS as an X11 fallback. Fire-and-forget: never blocks, never raises."""
-    if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
-        return
+    dark while commands run. On X11 (every NVIDIA install): DPMS the panel on AND inject a
+    harmless Shift press so the idle timer resets like a real mouse-wiggle (DPMS alone
+    re-blanks moments later; GNOME's SimulateUserActivity D-Bus method no longer exists —
+    verified live). Wayland: best-effort shield deactivate. Fire-and-forget: never raises."""
     import subprocess
-    for cmd in (
-        ["gdbus", "call", "--session", "--dest", "org.gnome.ScreenSaver",
-         "--object-path", "/org/gnome/ScreenSaver",
-         "--method", "org.gnome.ScreenSaver.SimulateUserActivity"],
-        ["xset", "dpms", "force", "on"],  # X11 only; harmless no-op elsewhere
-    ):
+
+    def fire(cmd: list[str]) -> None:
         try:
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
+
+    if os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        fire(["xset", "s", "reset"])
+        fire(["xset", "dpms", "force", "on"])
+        fire(["xdotool", "key", "--clearmodifiers", "shift"])
+    elif os.environ.get("WAYLAND_DISPLAY"):
+        fire(["gdbus", "call", "--session", "--dest", "org.gnome.ScreenSaver",
+              "--object-path", "/org/gnome/ScreenSaver",
+              "--method", "org.gnome.ScreenSaver.SetActive", "false"])
 
 
 def _wakeword_path(name: str) -> str:
