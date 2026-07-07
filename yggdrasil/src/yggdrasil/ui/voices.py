@@ -151,7 +151,11 @@ class VoicesApp(Gtk.Application):
                 Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         except Exception:
             pass
-        VoicesWindow(self).present()
+        # GTK apps are single-instance per app id: asking again re-fires activate on the FIRST
+        # process, so reuse the window instead of stacking a new copy each time.
+        if getattr(self, "win", None) is None:
+            self.win = VoicesWindow(self)
+        self.win.present()
 
 
 def main() -> None:

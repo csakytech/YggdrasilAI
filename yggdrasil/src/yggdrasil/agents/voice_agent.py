@@ -124,9 +124,13 @@ class VoiceAgent(BaseAgent):
             return self._open()
         vid = voices.resolve_spoken(spoken)
         if not vid:
-            return {"speech": f"I don't know a voice called {spoken} — I've put the list on "
-                              "screen." if voices.open_picker() else
-                              f"I don't know a voice called {spoken}."}
+            near = voices.closest(spoken)
+            if near:  # ambiguous ("calm mail"?) -> offer the front-runners, don't spam windows
+                opts = " or ".join(voices.label(v) for v in near)
+                return {"speech": f"Did you mean {opts}? Say, for example, "
+                                  f"“use the {voices.label(near[0])} voice”."}
+            voices.open_picker()
+            return {"speech": f"I don't know a voice called {spoken} — the list is on screen."}
         if voices.path_for(vid).is_file():
             voices.set_active(vid)
             # this very reply is rendered with the NEW voice (Speaker re-resolves per utterance)
@@ -141,6 +145,10 @@ class VoiceAgent(BaseAgent):
     def _preview(self, spoken: str):
         vid = voices.resolve_spoken(spoken) if spoken else None
         if not vid:
+            near = voices.closest(spoken) if spoken else []
+            if near:
+                opts = " or ".join(voices.label(v) for v in near)
+                return {"speech": f"Did you mean {opts}?"}
             return self._open()
         if voices.path_for(vid).is_file():
             voices.preview(vid)  # plays a couple of seconds after this reply finishes

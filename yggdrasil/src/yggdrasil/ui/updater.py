@@ -122,7 +122,10 @@ class UpdateApp(Gtk.Application):
                 Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         except Exception:
             pass
-        UpdateWindow(self).present()
+        # single-instance: re-activation must re-present the same window, not stack a new one
+        if getattr(self, "win", None) is None:
+            self.win = UpdateWindow(self)
+        self.win.present()
 
 
 def main() -> None:

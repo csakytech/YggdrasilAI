@@ -305,6 +305,8 @@ _VOICE_CLOSE = re.compile(r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |pleas
 _VOICE_TO = re.compile(r"\bchange (?:your|the) voice to\s+(.+?)\s*[.?!]?\s*$", re.I)
 _VOICE_USE = re.compile(r"\b(?:use|switch to|speak (?:with|in)|talk (?:with|in))\s+"
                         r"(?:the\s+|a\s+)?(.+?)\s+voice\b", re.I)
+# plain "download the X voice" (no "use") -> fetch it and play a sample; the user then decides
+_VOICE_DL = re.compile(r"\b(?:download|install|get|grab|fetch)\s+(?:the\s+|a\s+)?(.+?)\s+voice\b", re.I)
 _VOICE_PREVIEW = re.compile(r"\b(?:preview|try|demo|play|let me hear|hear)\s+(?:the\s+|a\s+)?(.+?)\s+voice\b"
                             r"|\bwhat does\s+(?:the\s+)?(.+?)\s+(?:voice\s+)?sound like\b", re.I)
 _VOICE_STATUS = re.compile(r"\b(?:what|which) voice (?:are you using|do you use|is (?:that|this))\b"
@@ -326,6 +328,9 @@ def _voice_route(goal: str):
     m = _VOICE_USE.search(g)
     if m:
         return ("use", m.group(1).strip(" .?"))
+    m = _VOICE_DL.search(g)
+    if m:
+        return ("preview", m.group(1).strip(" .?"))  # download + hear it, switch only if asked
     m = _VOICE_PREVIEW.search(g)
     if m:
         return ("preview", (m.group(1) or m.group(2) or "").strip(" .?"))

@@ -124,19 +124,54 @@ def label(vid: str) -> str:
     return (CATALOG.get(vid) or {}).get("label") or vid.replace("-", " ")
 
 
-def resolve_spoken(spoken: str) -> Optional[str]:
-    """'ryan' / 'the calm male voice' / 'alba' -> a catalog/installed voice id."""
-    spoken = (spoken or "").strip().lower().removeprefix("the ").removesuffix(" voice").strip()
-    if not spoken:
-        return None
+def _spoken_keys() -> dict[str, str]:
     ids = sorted(set(installed()) | set(CATALOG))
     by_key: dict[str, str] = {}
     for vid in ids:
         by_key[vid.lower()] = vid
         by_key[label(vid).lower()] = vid
         by_key[vid.split("-")[1].replace("_", " ")] = vid  # bare name: "ryan", "hfc male"
+    return by_key
+
+
+def _clean_spoken(spoken: str) -> str:
+    return (spoken or "").strip().lower().removeprefix("the ").removesuffix(" voice").strip()
+
+
+def resolve_spoken(spoken: str) -> Optional[str]:
+    """'ryan' / 'the calm male voice' / 'alba' -> a catalog/installed voice id.
+
+    Deliberately FORGIVING: switching a voice is trivially reversible (unlike deleting a
+    file), and STT mangles names ("calm mail"), so when the strict resolver isn't sure we
+    still take the clearly-best fuzzy candidate rather than dead-ending the user."""
+    spoken = _clean_spoken(spoken)
+    if not spoken:
+        return None
+    by_key = _spoken_keys()
     got, confident, _ = resolver.resolve(spoken, list(by_key), list(by_key))
-    return by_key.get(got) if got and confident else None
+    if got and confident:
+        return by_key[got]
+    ranked = _ranked(spoken)
+    if ranked and ranked[0][1] >= 0.6 and (len(ranked) == 1 or ranked[0][1] - ranked[1][1] >= 0.08):
+        return ranked[0][0]
+    return None
+
+
+def _ranked(spoken: str) -> list[tuple[str, float]]:
+    """Voice ids ranked by best fuzzy similarity to the spoken name."""
+    import difflib
+
+    best: dict[str, float] = {}
+    for key, vid in _spoken_keys().items():
+        r = difflib.SequenceMatcher(None, spoken, key).ratio()
+        if r > best.get(vid, 0.0):
+            best[vid] = r
+    return sorted(best.items(), key=lambda kv: kv[1], reverse=True)
+
+
+def closest(spoken: str, n: int = 2) -> list[str]:
+    """The n most likely intended voices — for 'did you mean…' replies."""
+    return [vid for vid, score in _ranked(_clean_spoken(spoken))[:n] if score >= 0.45]
 
 
 def download_status() -> dict[str, dict]:
