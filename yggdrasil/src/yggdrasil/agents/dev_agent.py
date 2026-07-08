@@ -22,7 +22,15 @@ from pathlib import Path
 from ..core import mission
 from ..core.permissions import Capability
 from .base import BaseAgent
-from .voice_agent import _notify
+
+
+def _notify(title: str, body: str) -> None:
+    if shutil.which("notify-send"):
+        try:
+            subprocess.Popen(["notify-send", "-a", "ThorOS", title, body],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
 _MODE_Q = ("First, the big one — how would you like to work? You can code it yourself with "
            "me assisting, we can code it together — you and the Agents — or the Agents can "
