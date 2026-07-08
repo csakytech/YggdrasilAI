@@ -437,6 +437,19 @@ class DevAgent(BaseAgent):
         mission.log(m, "File plan: " + ", ".join(f["path"] for f in files))
 
         manifest = "\n".join(f"- {f['path']}: {f['purpose']}" for f in files)
+        code_files = [f for f in files if f["path"].endswith((".py", ".js", ".ts"))]
+        single = len(code_files) == 1
+        if single:
+            import_rule = ("This is the ONLY code file — it must be SELF-CONTAINED. Import "
+                           "ONLY the Python standard library (random, sys, time, json…). Do "
+                           "NOT import any local/project module (no 'from utils import …', no "
+                           "'from game import …') — define EVERY helper function you need right "
+                           "here in this file.")
+        else:
+            import_rule = ("The listed files sit in the SAME directory and run together — "
+                           "import siblings by their BARE module name ('from utils import foo'), "
+                           "NEVER with a directory/package prefix like 'src.'. Only import a "
+                           "name from a sibling file that actually defines it.")
         for f in files:
             if self._cancelled():
                 mission.log(m, "Build cancelled — crew standing down.")
@@ -446,13 +459,9 @@ class DevAgent(BaseAgent):
                 r = await self.coder.generate(
                     system=("Write the COMPLETE contents of one file for this project. "
                             "Production-quality, fully working, no placeholders or TODOs. "
-                            "IMPORTS: all the listed files sit in the SAME directory and run "
-                            "together via the run command — import siblings by their BARE "
-                            "module name only ('from utils import foo' / 'import utils'), "
-                            "NEVER with a directory or package prefix like 'src.'. Any "
-                            "long-running loop or UI (e.g. curses) must sit under "
-                            "`if __name__ == \"__main__\":`. Only this file's content in the "
-                            "'content' field. JSON only."),
+                            f"IMPORTS: {import_rule} Any long-running loop or UI (e.g. curses) "
+                            "must sit under `if __name__ == \"__main__\":`. Only this file's "
+                            "content in the 'content' field. JSON only."),
                     prompt=f"Project: {m.get('summary')} named {m.get('name')}\n"
                            f"Language: {plan.get('language')} · Run: {plan.get('run_command')}\n"
                            f"All files:\n{manifest}\n\nWrite this file now: {f['path']} — {f['purpose']}",
@@ -497,9 +506,15 @@ class DevAgent(BaseAgent):
                         return
                     try:
                         cur = (pdir / path).read_text(encoding="utf-8")
+                        selfc = ("Since this is the only code file, it must be SELF-CONTAINED: "
+                                 "no local/project imports — define any helper it needs inline, "
+                                 "standard library only. ") if single else \
+                                ("Sibling modules are imported by BARE name (no 'src.' prefix); "
+                                 "only import names that actually exist. ")
                         rr = await self.coder.generate(
-                            system=("Fix this file so the project compiles AND runs. Sibling "
-                                    "modules are imported by BARE name (no 'src.' prefix). "
+                            system=("Fix this file so the project compiles AND runs. " + selfc +
+                                    "A 'No module named X' or 'cannot import name' error means "
+                                    "you must define that helper HERE, not import it. "
                                     "Return the COMPLETE corrected file in 'content'. JSON only."),
                             prompt=f"Error output:\n{err[:1400]}\n\nFile {path}:\n{cur[:6000]}",
                             schema=_CODE_SCHEMA, temperature=0.2)
