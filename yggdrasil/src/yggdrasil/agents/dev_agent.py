@@ -458,6 +458,8 @@ class DevAgent(BaseAgent):
             target.write_text(content, encoding="utf-8")
             mission.log(m, f"   {f['path']} written ({len(content.splitlines())} lines)")
 
+        self._normalize_imports(pdir, [f["path"] for f in files if f["path"].endswith(".py")], m)
+
         # Quality gates (jailed — the code never runs for real here). Two rounds, each with
         # one LLM repair pass: (1) py_compile = syntax; (2) an IMPORT SMOKE test that runs
         # every module's top-level code (imports, defs) but skips its __main__ block via
@@ -535,6 +537,33 @@ class DevAgent(BaseAgent):
                        f"{f' ({run_cmd})' if run_cmd else ''}.")
         _notify(f"ThorOS — {m.get('name', 'project')} is built",
                 "Say “run the project” to try it, or open it in your editor.")
+
+    @staticmethod
+    def _normalize_imports(pdir: Path, py_files: list[str], m: dict) -> None:
+        """Deterministically kill the #1 multi-file codegen bug: modules run together with
+        their own dir on sys.path, so sibling imports must be BARE — but small models keep
+        writing 'from src.utils import …'. If all code lives under one top dir (e.g. src/),
+        strip that prefix from every import. Cheap, exact, no LLM variance."""
+        tops = {p.split("/", 1)[0] for p in py_files if "/" in p}
+        pkgs = {t for t in tops if not t.endswith(".py")}
+        # also strip any dir that is itself a package holding these files
+        pkgs |= {Path(p).parent.name for p in py_files if "/" in p}
+        pkgs = {p for p in pkgs if p and re.fullmatch(r"[A-Za-z_]\w*", p)}
+        if not pkgs:
+            return
+        alt = "|".join(sorted(pkgs, key=len, reverse=True))
+        from_re = re.compile(rf"(?m)^(\s*from\s+)(?:{alt})\.")
+        imp_re = re.compile(rf"(?m)^(\s*import\s+)(?:{alt})\.(\w+)")
+        for rel in py_files:
+            fp = pdir / rel
+            try:
+                src = fp.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            new = imp_re.sub(r"\1\2", from_re.sub(r"\1", src))
+            if new != src:
+                fp.write_text(new, encoding="utf-8")
+                mission.log(m, f"   normalized imports in {rel}")
 
     @staticmethod
     def _entry_file(run_command: str, py_files: list[str]) -> str:
