@@ -528,7 +528,11 @@ class DevAgent(BaseAgent):
                 for attempt in range(3):  # launch gate — imports/paths resolve
                     sm = await gate(smoke_cmd, 30)
                     out = sm.get("output") or ""
-                    launch_ok = sm.get("returncode") == 0 or "curses" in out.lower() or sm.get("timed_out")
+                    # returncode 0 = clean. EOFError/curses/timeout all mean the program actually
+                    # RAN (it reached input()/the screen/its loop) — not a bug, just no TTY in the
+                    # jail. Only genuine import/name/attribute errors count as launch failures.
+                    ran = any(s in out for s in ("EOFError", "curses.error", "_curses"))
+                    launch_ok = sm.get("returncode") == 0 or ran or sm.get("timed_out")
                     if launch_ok or self._cancelled():
                         break
                     mission.log(m, f"Launch check (try {attempt + 1}) — the crew is fixing it…")
