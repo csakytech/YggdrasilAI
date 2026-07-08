@@ -181,11 +181,12 @@ class DevAgent(BaseAgent):
             r = await self.llm.generate(
                 system=("You are a lead developer interviewing a user before building their "
                         "software project. Ask the ONE next question that most changes the "
-                        "plan (features, audience, platform details, look and feel, saving, "
-                        "connectivity, publishing…). Never re-ask anything in the transcript. "
-                        "Short, plain, voice-friendly questions — no jargon. Set done=true "
-                        "ONLY when a competent lead developer would have no plan-changing "
-                        "questions left. JSON only."),
+                        "plan. Understand WHAT it is and does first (kind, core features, "
+                        "audience), then details (look and feel, saving, connectivity), and "
+                        "business questions like pricing LAST if at all. Never re-ask "
+                        "anything in the transcript. Short, plain, voice-friendly questions "
+                        "— no jargon. Set done=true ONLY when a competent lead developer "
+                        "would have no plan-changing questions left. JSON only."),
                 prompt=f"Project: {m.get('summary')}\nOriginal request: {m.get('goal')}\n"
                        f"Interview so far:\n{transcript or '(none yet)'}",
                 schema=_Q_SCHEMA)
@@ -207,7 +208,8 @@ class DevAgent(BaseAgent):
                         "Be opinionated and practical for a Linux desktop with local AI. "
                         "agents = 2 to 4 team members, each with a name like 'Kotlin "
                         "specialist' or 'Build and test runner' and a one-line specialty. "
-                        "folders = relative paths. test_stages = 2 to 4 concrete pass/fail "
+                        "folders = relative DIRECTORY paths only — never file names. "
+                        "test_stages = 2 to 4 concrete pass/fail "
                         "checks. speech = at most 3 spoken sentences summarizing the plan, "
                         "ending by asking whether to set it up or change anything. "
                         "Where the user delegated a choice, choose confidently. JSON only."),
@@ -250,7 +252,8 @@ class DevAgent(BaseAgent):
             pdir.mkdir(parents=True, exist_ok=True)
             for rel in (m.get("plan", {}).get("folders") or [])[:12]:
                 rel = str(rel).strip().lstrip("/")
-                if rel and ".." not in rel:
+                # directories only — models sometimes list files (build.gradle.kts) here
+                if rel and ".." not in rel and "." not in rel.rsplit("/", 1)[-1]:
                     (pdir / rel).mkdir(parents=True, exist_ok=True)
                     created.append(rel)
             (pdir / "MISSION.md").write_text(mission.render_markdown(m), encoding="utf-8")
