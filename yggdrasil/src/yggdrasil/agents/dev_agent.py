@@ -434,6 +434,16 @@ class DevAgent(BaseAgent):
             mission.log(m, "The crew couldn't agree on a file plan — build stopped.")
             _notify("ThorOS build", "Build stopped — no file plan. Try “start building” again.")
             return
+        # Local 7B coders can't reliably hold multi-file API contracts (imports drift, helpers
+        # get referenced from files that don't define them). Until a stronger coder model is the
+        # norm, build ONE self-contained entry file — reliable and fast. (Raise this cap when a
+        # 14B/32B coder is bound.) README stays.
+        code_files = [f for f in files if f["path"].endswith((".py", ".js", ".ts"))]
+        if len(code_files) > 1:
+            entry_f = next((f for f in code_files if "main" in f["path"].lower()), code_files[0])
+            readme = [f for f in files if f["path"].lower().endswith("readme.md")][:1]
+            files = [entry_f] + readme
+            mission.log(m, f"Building as one self-contained file ({entry_f['path']}) for reliability.")
         mission.log(m, "File plan: " + ", ".join(f["path"] for f in files))
 
         manifest = "\n".join(f"- {f['path']}: {f['purpose']}" for f in files)
