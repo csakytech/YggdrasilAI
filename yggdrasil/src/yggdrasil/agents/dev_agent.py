@@ -409,8 +409,10 @@ class DevAgent(BaseAgent):
         transcript = "\n".join(f"{d['q']}: {d['a']}" for d in m.get("decisions", []))
         r = await self.llm.generate(
             system=("Plan the FILES for this project: 2 to 8 files with relative paths and a "
-                    "one-line purpose each. Include a README.md. The entry file must match "
-                    "the run command. Keep it as simple as the project allows. JSON only."),
+                    "one-line purpose each. Include a README.md. Keep it FLAT — put every "
+                    "code file in ONE directory (the project root), NOT in nested package "
+                    "folders, so imports stay simple. The entry file must match the run "
+                    "command exactly. JSON only."),
             prompt=f"Project: {m.get('summary')} named {m.get('name')}\n"
                    f"Language: {plan.get('language')}\nRun command: {plan.get('run_command')}\n"
                    f"Decisions:\n{transcript}",
@@ -433,7 +435,13 @@ class DevAgent(BaseAgent):
                 r = await self.llm.generate(
                     system=("Write the COMPLETE contents of one file for this project. "
                             "Production-quality, fully working, no placeholders or TODOs. "
-                            "Only this file's content in the 'content' field. JSON only."),
+                            "IMPORTS: all the listed files sit in the SAME directory and run "
+                            "together via the run command — import siblings by their BARE "
+                            "module name only ('from utils import foo' / 'import utils'), "
+                            "NEVER with a directory or package prefix like 'src.'. Any "
+                            "long-running loop or UI (e.g. curses) must sit under "
+                            "`if __name__ == \"__main__\":`. Only this file's content in the "
+                            "'content' field. JSON only."),
                     prompt=f"Project: {m.get('summary')} named {m.get('name')}\n"
                            f"Language: {plan.get('language')} · Run: {plan.get('run_command')}\n"
                            f"All files:\n{manifest}\n\nWrite this file now: {f['path']} — {f['purpose']}",
@@ -450,37 +458,59 @@ class DevAgent(BaseAgent):
             target.write_text(content, encoding="utf-8")
             mission.log(m, f"   {f['path']} written ({len(content.splitlines())} lines)")
 
-        # syntax gate (jailed): the code never runs for real here — compile checks only
+        # Quality gates (jailed — the code never runs for real here). Two rounds, each with
+        # one LLM repair pass: (1) py_compile = syntax; (2) an IMPORT SMOKE test that runs
+        # every module's top-level code (imports, defs) but skips its __main__ block via
+        # runpy run_name='__smoke__' — this catches the import/path bugs that compile fine
+        # but crash at launch, WITHOUT starting a curses loop that would hang.
         py_files = [f["path"] for f in files if f["path"].endswith(".py")
                     and (pdir / f["path"]).is_file()]
+        entry = self._entry_file(plan.get("run_command", ""), py_files)
         if py_files:
             from ..core.sandbox import run_command
-            check = await run_command(f"python3 -m py_compile {' '.join(py_files)}",
-                                      pdir, timeout=60)
-            if check.get("returncode") != 0 and not self._cancelled():
-                mission.log(m, "Syntax check failed — the crew is fixing it…")
-                err = (check.get("output") or "")[:1200]
+
+            async def gate(cmd, timeout):
+                return await run_command(cmd, pdir, timeout=timeout)
+
+            async def repair(label, err):
+                mission.log(m, f"{label} failed — the crew is fixing it…")
                 for path in py_files:
-                    if path not in err:
+                    if path not in err or self._cancelled():
                         continue
                     try:
                         cur = (pdir / path).read_text(encoding="utf-8")
-                        r = await self.llm.generate(
-                            system=("Fix this file so it compiles. Return the COMPLETE "
-                                    "corrected file in 'content'. JSON only."),
-                            prompt=f"Compiler output:\n{err}\n\nFile {path}:\n{cur[:6000]}",
+                        rr = await self.llm.generate(
+                            system=("Fix this file so the project compiles AND runs. Sibling "
+                                    "modules are imported by BARE name (no 'src.' prefix). "
+                                    "Return the COMPLETE corrected file in 'content'. JSON only."),
+                            prompt=f"Error output:\n{err[:1400]}\n\nFile {path}:\n{cur[:6000]}",
                             schema=_CODE_SCHEMA, temperature=0.2)
-                        fixed = (r.parsed or {}).get("content", "")
-                        if fixed.strip():
-                            (pdir / path).write_text(fixed, encoding="utf-8")
+                        fx = (rr.parsed or {}).get("content", "")
+                        if fx.strip():
+                            (pdir / path).write_text(fx, encoding="utf-8")
                             mission.log(m, f"   {path} repaired")
                     except Exception:
                         pass
-                check = await run_command(f"python3 -m py_compile {' '.join(py_files)}",
-                                          pdir, timeout=60)
-            mission.log(m, "Syntax check: " +
-                        ("PASSED" if check.get("returncode") == 0 else
-                         "still failing — the code is in your editor to look at together"))
+
+            comp = await gate(f"python3 -m py_compile {' '.join(py_files)}", 60)
+            if comp.get("returncode") != 0 and not self._cancelled():
+                await repair("Syntax check", comp.get("output") or "")
+                comp = await gate(f"python3 -m py_compile {' '.join(py_files)}", 60)
+            mission.log(m, "Syntax check: " + ("PASSED" if comp.get("returncode") == 0 else "still failing"))
+
+            if entry and not self._cancelled():
+                smoke_cmd = (f"python3 -c \"import runpy,sys; sys.argv=['{entry}']; "
+                             f"runpy.run_path('{entry}', run_name='__smoke__')\"")
+                sm = await gate(smoke_cmd, 30)
+                out = sm.get("output") or ""
+                launch_ok = sm.get("returncode") == 0 or "curses" in out.lower() or sm.get("timed_out")
+                if not launch_ok and not self._cancelled():
+                    await repair("Launch check", out)
+                    sm = await gate(smoke_cmd, 30)
+                    out = sm.get("output") or ""
+                    launch_ok = sm.get("returncode") == 0 or "curses" in out.lower() or sm.get("timed_out")
+                mission.log(m, "Launch check: " + ("PASSED" if launch_ok else
+                            "the imports still need a look — it's open in your editor"))
 
         run_cmd = (plan.get("run_command") or "").strip()
         if run_cmd.startswith(("python ", "python3 ")) and py != "python3":
@@ -505,6 +535,18 @@ class DevAgent(BaseAgent):
                        f"{f' ({run_cmd})' if run_cmd else ''}.")
         _notify(f"ThorOS — {m.get('name', 'project')} is built",
                 "Say “run the project” to try it, or open it in your editor.")
+
+    @staticmethod
+    def _entry_file(run_command: str, py_files: list[str]) -> str:
+        """The .py file the run command launches (e.g. 'python3 src/main.py' -> 'src/main.py')."""
+        for tok in (run_command or "").split():
+            if tok.endswith(".py"):
+                return tok
+        for cand in ("main.py", "app.py", "game.py"):
+            for p in py_files:
+                if p.endswith(cand):
+                    return p
+        return py_files[0] if py_files else ""
 
     def _run_project(self):
         m = mission.load()
