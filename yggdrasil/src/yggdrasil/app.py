@@ -78,7 +78,9 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(UpdateAgent(bus, perms, llm))
     registry.register(ModelAgent(bus, perms, models))
     registry.register(VoiceAgent(bus, perms))
-    registry.register(DevAgent(bus, perms, models.get("reasoner") if models else None, sandbox))
+    registry.register(DevAgent(bus, perms,
+                               models.get("reasoner") if models else None,
+                               models.get("coder") if models else None, sandbox))
 
     # Installed marketplace agents. In-process for now (trusted/verified only — the sandbox lands
     # before untrusted packets). Core domains are reserved so a packet can't hijack 'file'/'system'/…

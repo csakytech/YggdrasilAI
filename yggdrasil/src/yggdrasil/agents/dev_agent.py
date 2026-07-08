@@ -104,9 +104,10 @@ class DevAgent(BaseAgent):
         "hide": Capability("hide", False, "Close the Mission window"),
     }
 
-    def __init__(self, bus, perms, llm=None, sandbox_root=None) -> None:
+    def __init__(self, bus, perms, llm=None, coder=None, sandbox_root=None) -> None:
         super().__init__(bus, perms)
-        self.llm = llm
+        self.llm = llm                    # reasoner role — interview, proposal, conversation
+        self.coder = coder or llm         # coder role — writing and repairing the actual code
         self.sandbox_root = Path(sandbox_root) if sandbox_root else (Path.home() / "YggdrasilSandbox")
 
     async def _execute(self, verb, params):
@@ -407,7 +408,7 @@ class DevAgent(BaseAgent):
             return
 
         transcript = "\n".join(f"{d['q']}: {d['a']}" for d in m.get("decisions", []))
-        r = await self.llm.generate(
+        r = await self.coder.generate(
             system=("Plan the FILES for this project: 2 to 8 files with relative paths and a "
                     "one-line purpose each. Include a README.md. Keep it FLAT — put every "
                     "code file in ONE directory (the project root), NOT in nested package "
@@ -432,7 +433,7 @@ class DevAgent(BaseAgent):
                 return
             mission.log(m, f"✍ {coder}: writing {f['path']}")
             try:
-                r = await self.llm.generate(
+                r = await self.coder.generate(
                     system=("Write the COMPLETE contents of one file for this project. "
                             "Production-quality, fully working, no placeholders or TODOs. "
                             "IMPORTS: all the listed files sit in the SAME directory and run "
@@ -474,14 +475,16 @@ class DevAgent(BaseAgent):
             async def gate(cmd, timeout):
                 return await run_command(cmd, pdir, timeout=timeout)
 
-            async def repair(label, err):
-                mission.log(m, f"{label} failed — the crew is fixing it…")
-                for path in py_files:
-                    if path not in err or self._cancelled():
-                        continue
+            async def repair(err):
+                # Repair the files named in the error; if none matched (or only one), also
+                # give the entry file a look, since import bugs cascade across files.
+                targets = [p for p in py_files if p in err] or py_files
+                for path in targets:
+                    if self._cancelled():
+                        return
                     try:
                         cur = (pdir / path).read_text(encoding="utf-8")
-                        rr = await self.llm.generate(
+                        rr = await self.coder.generate(
                             system=("Fix this file so the project compiles AND runs. Sibling "
                                     "modules are imported by BARE name (no 'src.' prefix). "
                                     "Return the COMPLETE corrected file in 'content'. JSON only."),
@@ -494,23 +497,30 @@ class DevAgent(BaseAgent):
                     except Exception:
                         pass
 
-            comp = await gate(f"python3 -m py_compile {' '.join(py_files)}", 60)
-            if comp.get("returncode") != 0 and not self._cancelled():
-                await repair("Syntax check", comp.get("output") or "")
-                comp = await gate(f"python3 -m py_compile {' '.join(py_files)}", 60)
+            compile_cmd = f"python3 -m py_compile {' '.join(py_files)}"
+            comp = {}
+            for attempt in range(3):  # syntax gate — retry the repair a few times
+                comp = await gate(compile_cmd, 60)
+                if comp.get("returncode") == 0 or self._cancelled():
+                    break
+                mission.log(m, f"Syntax check (try {attempt + 1}) — the crew is fixing it…")
+                await repair(comp.get("output") or "")
+                self._normalize_imports(pdir, py_files, m)
             mission.log(m, "Syntax check: " + ("PASSED" if comp.get("returncode") == 0 else "still failing"))
 
             if entry and not self._cancelled():
                 smoke_cmd = (f"python3 -c \"import runpy,sys; sys.argv=['{entry}']; "
                              f"runpy.run_path('{entry}', run_name='__smoke__')\"")
-                sm = await gate(smoke_cmd, 30)
-                out = sm.get("output") or ""
-                launch_ok = sm.get("returncode") == 0 or "curses" in out.lower() or sm.get("timed_out")
-                if not launch_ok and not self._cancelled():
-                    await repair("Launch check", out)
+                launch_ok = False
+                for attempt in range(3):  # launch gate — imports/paths resolve
                     sm = await gate(smoke_cmd, 30)
                     out = sm.get("output") or ""
                     launch_ok = sm.get("returncode") == 0 or "curses" in out.lower() or sm.get("timed_out")
+                    if launch_ok or self._cancelled():
+                        break
+                    mission.log(m, f"Launch check (try {attempt + 1}) — the crew is fixing it…")
+                    await repair(out)
+                    self._normalize_imports(pdir, py_files, m)
                 mission.log(m, "Launch check: " + ("PASSED" if launch_ok else
                             "the imports still need a look — it's open in your editor"))
 
