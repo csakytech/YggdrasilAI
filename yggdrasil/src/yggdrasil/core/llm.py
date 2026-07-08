@@ -7,6 +7,7 @@ See docs/ARCHITECTURE.md (ADR-0002).
 """
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -91,11 +92,15 @@ class OllamaProvider(LLMProvider):
             payload["format"] = schema  # JSON-schema constrained decoding
 
         content, last_err = None, None
-        # Keep the worst case short so a stuck model never freezes the voice loop for minutes.
-        # Normal responses are ~3-10s with the model kept resident (OLLAMA_KEEP_ALIVE=-1).
+        # Fast CONNECT (a down daemon fails in ~10s) but a generous READ: loading a multi-GB
+        # model into VRAM — or swapping two models on a small GPU — legitimately takes longer
+        # than a chat reply. Normal responses are ~3-10s with the model resident; the long read
+        # ceiling only bites on a cold load. Override with YGGDRASIL_LLM_READ_TIMEOUT.
+        read_to = float(os.environ.get("YGGDRASIL_LLM_READ_TIMEOUT", "180"))
+        timeout = httpx.Timeout(read_to, connect=10.0, write=15.0, pool=10.0)
         for _attempt in range(2):  # one retry — Ollama can be briefly busy (e.g. model load)
             try:
-                async with httpx.AsyncClient(timeout=60) as client:
+                async with httpx.AsyncClient(timeout=timeout) as client:
                     r = await client.post(f"{self.host}/api/chat", json=payload)
                     r.raise_for_status()
                     content = r.json()["message"]["content"]
