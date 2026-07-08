@@ -326,6 +326,13 @@ _DEV_WIN_RE = re.compile(
     r"\s+(?:the |my )?(?:mission|development (?:plan|mission|window))\b", re.I)
 
 
+_DEV_BUILD_RE = re.compile(r"^\s*(?:can you |please )?(?:start|begin)(?: the)? build(?:ing)?\b"
+                           r"|^\s*agents?,? (?:start|get) (?:building|to work)\b", re.I)
+_DEV_RUN_RE = re.compile(r"^\s*(?:can you |please )?(?:run|launch|play|start)\s+(?:the |my )?"
+                         r"(?:project|game)\b", re.I)
+_DEV_STATUS_RE = re.compile(r"\bhow(?:'s| is)\b.{0,20}\b(?:build|mission|project)\b(?: going| coming)?", re.I)
+
+
 def _dev_route(goal: str):
     g = goal.strip()
     if _DEV_CANCEL_RE.match(g):
@@ -333,6 +340,12 @@ def _dev_route(goal: str):
     m = _DEV_WIN_RE.match(g)
     if m:
         return ("hide" if m.group(1).lower() in ("close", "hide", "dismiss") else "show", "")
+    if _DEV_BUILD_RE.match(g):
+        return ("build", "")
+    if _DEV_RUN_RE.match(g):
+        return ("run", "")
+    if _DEV_STATUS_RE.search(g):
+        return ("status", "")
     if _DEV_ENTER_RE.search(g):
         return ("enter", g)
     return None
