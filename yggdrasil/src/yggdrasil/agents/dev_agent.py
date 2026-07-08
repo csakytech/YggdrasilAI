@@ -365,10 +365,14 @@ class DevAgent(BaseAgent):
         import asyncio as aio
         try:
             aio.run(self._build_async())
-        except Exception as e:  # the crew must never die silently
+        except Exception as e:  # the crew must never die silently OR leave the mission hung
             m = mission.load()
-            mission.log(m, f"Build stopped by an error: {e!r}")
-            _notify("ThorOS build", "The build hit an error — see the mission window.")
+            m["stage"] = "done"  # terminal — never leave the mission stuck in "build"
+            for a in m.get("agents", []):
+                a["status"] = "stopped"
+            mission.save(m)
+            mission.log(m, f"Build stopped by an error: {e!r} — what's written is in your editor.")
+            _notify("ThorOS build", "The build hit a snag — see the mission window.")
 
     def _cancelled(self) -> bool:
         m = mission.load()
@@ -421,8 +425,11 @@ class DevAgent(BaseAgent):
                    f"Language: {plan.get('language')}\nRun command: {plan.get('run_command')}\n"
                    f"Decisions:\n{transcript}",
             schema=_FILES_SCHEMA)
+        # Keep only real files: a path with a filename+extension, not a bare directory,
+        # not an escape. (Models sometimes emit 'src' or 'src/' as a "file".)
         files = [f for f in (r.parsed or {}).get("files", [])[:8]
-                 if f.get("path") and ".." not in f["path"] and not f["path"].startswith("/")]
+                 if f.get("path") and ".." not in f["path"] and not f["path"].startswith("/")
+                 and not f["path"].endswith("/") and "." in f["path"].rsplit("/", 1)[-1]]
         if not files:
             mission.log(m, "The crew couldn't agree on a file plan — build stopped.")
             _notify("ThorOS build", "Build stopped — no file plan. Try “start building” again.")
@@ -458,6 +465,9 @@ class DevAgent(BaseAgent):
                 mission.log(m, f"{f['path']}: the Agent produced nothing — skipped.")
                 continue
             target = (pdir / f["path"])
+            if target.is_dir():  # defensive: never try to write over a directory
+                mission.log(m, f"   {f['path']}: skipped (that path is a directory)")
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
             mission.log(m, f"   {f['path']} written ({len(content.splitlines())} lines)")
