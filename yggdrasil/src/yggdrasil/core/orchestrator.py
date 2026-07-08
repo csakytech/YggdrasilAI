@@ -101,11 +101,8 @@ _PLANNER_NEGATIVE = [
     'what is my name -> {"steps":[]}',
     'how are you -> {"steps":[]}',
     'dance a jig -> {"steps":[]}',
-    # Open-ended "build/make/create me a program/app/tool" is NOT "launch an app" — return no steps so
-    # the assistant backbone handles it honestly (offer to scaffold files, open an editor, etc.).
-    'build me a budgeting program -> {"steps":[]}',
-    'create an app that tracks my expenses -> {"steps":[]}',
-    'make me a tool to organize my photos -> {"steps":[]}',
+    # "build/make/create me a program/app/tool" routes to Development Mode (dev.enter) —
+    # positive examples come from the Dev agent's manifest.
 ]
 
 
@@ -312,6 +309,35 @@ _MDL_RESET = re.compile(r"\b(?:reset|go back to the default|back to default)\b.{
 _MDL_MODELISH = re.compile(r"\d|qwen|llama|mistral|gemma|deepseek|phi|coder|granite|command-r", re.I)
 
 
+# Development Mode -> the Dev agent. "I want to build a small game for Android" starts a
+# mission (interview -> proposal -> approve -> setup). The software-noun requirement keeps
+# "create a folder", "make a note", and "write a poem" untouched; the article+noun adjacency
+# keeps "make a list of all the apps" out.
+_DEV_NOUN = r"(?:game|app|application|program|website|web ?app|software|tool|prototype)"
+_DEV_ENTER_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?[a-z]+,\s+)?(?:can you |could you |please )?"
+    r"(?:i(?:'d| would)? (?:like|want) to|help me|let'?s|i'?m going to|i wanna|can we|we should)?\s*"
+    r"(?:build|create|make|develop|code|start building|write)\s+(?:me\s+)?"
+    r"(?:a|an|my|some)\s+(?:\w+[ -]){0,3}" + _DEV_NOUN + r"\b", re.I)
+_DEV_CANCEL_RE = re.compile(
+    r"^\s*(?:cancel|stop|abort|quit|end)(?: the| this)? ?(?:development|dev ?mode|mission|project)\b", re.I)
+_DEV_WIN_RE = re.compile(
+    r"^\s*(?:can you |could you |please )?(show(?: me)?|open|display|pull up|bring up|close|hide|dismiss)"
+    r"\s+(?:the |my )?(?:mission|development (?:plan|mission|window))\b", re.I)
+
+
+def _dev_route(goal: str):
+    g = goal.strip()
+    if _DEV_CANCEL_RE.match(g):
+        return ("cancel", "")
+    m = _DEV_WIN_RE.match(g)
+    if m:
+        return ("hide" if m.group(1).lower() in ("close", "hide", "dismiss") else "show", "")
+    if _DEV_ENTER_RE.search(g):
+        return ("enter", g)
+    return None
+
+
 # Voice management -> the Voice agent. Every pattern requires the word "voice(s)", so none of
 # this can hijack ordinary requests. "Change your voice" (no target) opens the PICKER — seeing
 # and previewing the options beats guessing a name.
@@ -484,6 +510,7 @@ class Orchestrator:
         self._last_path: str | None = None
         self._recent_created: list[str] = []  # paths created this session — "those files you made"
         self._pending_confirm: str | None = None  # an agent awaiting a spoken yes/no (e.g. file delete)
+        self._pending_reply: str | None = None  # an agent mid-conversation (e.g. the Dev interview)
 
     def _publish(self, text: str) -> None:
         if self.activity:
@@ -523,6 +550,21 @@ class Orchestrator:
                 task = Task(action=f"{agent}.cancel", agent=agent, params={})
                 return self._render(task, await self._dispatch(task))
             # not a yes/no -> drop the pending confirmation and handle the new request normally
+        if self._pending_reply:  # an agent asked a real question (Dev interview) — route the answer to it
+            agent = self._pending_reply
+            self._pending_reply = None
+            if _DEV_CANCEL_RE.match(goal.strip()):
+                task = Task(action=f"{agent}.cancel", agent=agent, params={})
+                return self._render(task, await self._dispatch(task))
+            self._publish("Listening…")
+            task = Task(action=f"{agent}.answer", agent=agent, params={"argument": goal})
+            result = await self._dispatch(task)
+            if isinstance(result.data, dict):
+                if result.data.get("await_reply"):
+                    self._pending_reply = result.data.get("agent")
+                if result.data.get("await_confirm"):
+                    self._pending_confirm = result.data.get("agent")
+            return self._render(task, result)
         if _EXPLAIN_RE.match(goal.strip()):  # "why did you…" -> explain my last action, reliably
             self._publish("")
             task = Task(action="explain.why", agent="explain", params={"argument": ""})
@@ -595,6 +637,15 @@ class Orchestrator:
             result = await self._dispatch(task)
             if isinstance(result.data, dict) and result.data.get("await_confirm"):
                 self._pending_confirm = result.data.get("agent")
+            return self._render(task, result)
+        dv = _dev_route(goal)  # "I want to build a small game for android" -> Development Mode
+        if dv:
+            verb, arg = dv
+            self._publish("Development Mode…")
+            task = Task(action=f"dev.{verb}", agent="dev", params={"argument": arg})
+            result = await self._dispatch(task)
+            if isinstance(result.data, dict) and result.data.get("await_reply"):
+                self._pending_reply = result.data.get("agent")
             return self._render(task, result)
         if _SCHEDULE_RE.match(goal.strip()):  # "remind me…" / "schedule…" / "every weekday at 9…"
             self._publish("Scheduling…")
