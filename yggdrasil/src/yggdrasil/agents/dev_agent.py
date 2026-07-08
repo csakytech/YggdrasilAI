@@ -303,6 +303,9 @@ class DevAgent(BaseAgent):
                     (pdir / rel).mkdir(parents=True, exist_ok=True)
                     created.append(rel)
             (pdir / "MISSION.md").write_text(mission.render_markdown(m), encoding="utf-8")
+            if not (pdir / ".gitignore").exists():  # keep the venv/caches out of version control
+                (pdir / ".gitignore").write_text(
+                    ".venv/\n__pycache__/\n*.pyc\n.DS_Store\nnode_modules/\n", encoding="utf-8")
         except OSError as e:
             return {"speech": f"I couldn't create the workspace: {e}"}
         m["project_dir"] = str(pdir)
@@ -378,7 +381,13 @@ class DevAgent(BaseAgent):
                       or "code" in a["specialty"].lower()), None) or \
             (m.get("agents") or [{"name": "Code Agent"}])[0]["name"]
 
-        deps = [d for d in (plan.get("python_deps") or []) if re.fullmatch(r"[A-Za-z0-9_.\-]+", d)]
+        # Only real pip packages — models often list stdlib modules (curses, random, json)
+        # as "deps", which would spin up a pointless venv and fail to install.
+        stdlib = getattr(sys, "stdlib_module_names", frozenset())
+        deps = [d for d in (plan.get("python_deps") or [])
+                if re.fullmatch(r"[A-Za-z0-9_.\-]+", d)
+                and d.split("[")[0].replace("-", "_").lower() not in
+                {s.lower() for s in stdlib}]
         py = "python3"
         if deps:
             mission.log(m, f"Setting up the Python environment ({', '.join(deps)})…")
