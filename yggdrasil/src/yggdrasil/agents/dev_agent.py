@@ -242,14 +242,23 @@ class DevAgent(BaseAgent):
         try:
             r = await self.llm.generate(
                 system=("Produce the complete recommended plan for this software project. "
-                        "Be opinionated and practical for a Linux desktop with local AI. "
-                        "agents = 2 to 4 team members, each with a name like 'Kotlin "
-                        "specialist' or 'Build and test runner' and a one-line specialty. "
-                        "folders = relative DIRECTORY paths only — never file names. "
-                        "test_stages = 2 to 4 concrete pass/fail "
-                        "checks. speech = at most 3 spoken sentences summarizing the plan, "
-                        "ending by asking whether to set it up or change anything. "
-                        "Where the user delegated a choice, choose confidently. JSON only."),
+                        "CRITICAL: the user will RUN this on THIS machine (Debian Linux, "
+                        "Python 3 preinstalled) immediately after it's built, so it MUST be "
+                        "runnable out of the box. Strongly prefer PYTHON for desktop, "
+                        "terminal, games (pygame or the curses module), scripts, and small "
+                        "apps; HTML/CSS/JS (no build step) for simple web pages. Only pick a "
+                        "language needing a separate SDK or compiler (Kotlin, Java, C#, "
+                        "Swift, native Android) if the user EXPLICITLY named that platform — "
+                        "and if so, say in 'speech' that extra tools must be installed first. "
+                        "run_command = the exact command to run it from the project root "
+                        "(e.g. 'python3 main.py'). python_deps = pip package names only (e.g. "
+                        "['pygame']) or []. agents = 2 to 4 members, each a name like 'Game "
+                        "logic specialist' + a one-line specialty. folders = relative "
+                        "DIRECTORY paths only, never file names. test_stages = 2 to 4 "
+                        "concrete pass/fail checks. speech = at most 3 spoken sentences "
+                        "summarizing the plan, ending by asking whether to set it up or "
+                        "change anything. Where the user delegated a choice, choose "
+                        "confidently. JSON only."),
                 prompt=f"Project: {m.get('summary')}\nName: {m.get('name')}\n"
                        f"Coding mode: {m.get('coding_mode')}\nInterview:\n{transcript}{note}",
                 schema=_PLAN_SCHEMA)
