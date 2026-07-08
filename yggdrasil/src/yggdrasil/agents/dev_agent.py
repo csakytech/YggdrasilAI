@@ -409,11 +409,14 @@ class DevAgent(BaseAgent):
 
         transcript = "\n".join(f"{d['q']}: {d['a']}" for d in m.get("decisions", []))
         r = await self.coder.generate(
-            system=("Plan the FILES for this project: 2 to 8 files with relative paths and a "
-                    "one-line purpose each. Include a README.md. Keep it FLAT — put every "
-                    "code file in ONE directory (the project root), NOT in nested package "
-                    "folders, so imports stay simple. The entry file must match the run "
-                    "command exactly. JSON only."),
+            system=("Plan the FILES for this project. STRONGLY PREFER A SINGLE code file "
+                    "(the entry file that matches the run command) — a small game, script, "
+                    "or tool should be ONE self-contained file with no imports between your "
+                    "own modules. Split into extra files ONLY if the project is genuinely "
+                    "large; each split file is a cross-file contract a small model can get "
+                    "wrong. If you do split, keep everything FLAT in the project root, never "
+                    "nested packages. Always add a README.md. Aim for the FEWEST files that "
+                    "work. JSON only."),
             prompt=f"Project: {m.get('summary')} named {m.get('name')}\n"
                    f"Language: {plan.get('language')}\nRun command: {plan.get('run_command')}\n"
                    f"Decisions:\n{transcript}",
