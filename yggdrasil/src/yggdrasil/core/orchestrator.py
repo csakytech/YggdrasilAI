@@ -330,7 +330,15 @@ _DEV_BUILD_RE = re.compile(r"^\s*(?:can you |please )?(?:start|begin)(?: the)? b
                            r"|^\s*agents?,? (?:start|get) (?:building|to work)\b", re.I)
 _DEV_RUN_RE = re.compile(r"^\s*(?:can you |please )?(?:run|launch|play|start)\s+(?:the |my )?"
                          r"(?:project|game)\b", re.I)
-_DEV_STATUS_RE = re.compile(r"\bhow(?:'s| is)\b.{0,20}\b(?:build|mission|project)\b(?: going| coming)?", re.I)
+# Status questions arrive in many spoken shapes ("hows the build going", "is the build done",
+# "are the agents done", "build status") and STT mangles words ("built") — match the intent,
+# not one phrasing. Guarded so "how do I build an app" (a how-to, not a status ask) stays out.
+_DEV_STATUS_RE = re.compile(
+    r"\bhow(?:'?s| is| far(?: along)?| are)\b.{0,30}\b(?:buil(?:d|ds|ding|t)|mission|project|agents?)\b"
+    r"|\bhow\b.{0,30}\b(?:buil(?:d|ds|ding|t)|mission|project)\b.{0,16}\b(?:going|coming|doing|progress)\b"
+    r"|\b(?:build|mission|project)\s+(?:status|progress|update)\b"
+    r"|\b(?:is|are)\s+(?:the\s+|my\s+)?(?:buil(?:d|ds|t)|project|agents?)\b.{0,18}\b(?:done|ready|finished|complete)\b"
+    r"|\bare\s+(?:the\s+)?agents?\b.{0,18}\b(?:working|building|busy|still going)\b", re.I)
 
 
 def _dev_route(goal: str):

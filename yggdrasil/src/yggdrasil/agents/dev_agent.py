@@ -109,6 +109,7 @@ class DevAgent(BaseAgent):
         self.llm = llm                    # reasoner role — interview, proposal, conversation
         self.coder = coder or llm         # coder role — writing and repairing the actual code
         self.sandbox_root = Path(sandbox_root) if sandbox_root else (Path.home() / "YggdrasilSandbox")
+        self._build_thread = None         # liveness — a restart mid-build must not strand the mission
 
     async def _execute(self, verb, params):
         arg = (params.get("argument") or "").strip()
@@ -360,14 +361,19 @@ class DevAgent(BaseAgent):
             return {"speech": "You chose to code this one yourself — but say the word and "
                               "I'll switch the Agents to building it."}
         if m.get("stage") == "build":
-            return self._status()
+            if self._build_thread is not None and self._build_thread.is_alive():
+                return self._status()  # genuinely building — report progress
+            # stage says "build" but no crew is running (the assistant restarted mid-build) —
+            # let "start building" resume instead of stranding the mission forever
+            mission.log(m, "Previous build was interrupted — restarting the crew.")
         m["stage"] = "build"
         for a in m.get("agents", []):
             a["status"] = "ACTIVE"
         mission.save(m)
         mission.log(m, "Agent crew activated — build starting.")
         import threading
-        threading.Thread(target=self._build_worker, daemon=True, name="dev-build").start()
+        self._build_thread = threading.Thread(target=self._build_worker, daemon=True, name="dev-build")
+        self._build_thread.start()
         hybrid = m.get("coding_mode") == "hybrid"
         return {"speech": "The Agents are at work — you can watch every step in the mission "
                           "window, and I'll pop up a notification when they're done. Ask "
