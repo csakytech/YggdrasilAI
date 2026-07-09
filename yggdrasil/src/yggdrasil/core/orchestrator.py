@@ -464,6 +464,17 @@ def _market_route(goal: str):
     return None
 
 
+# "open a terminal window" -> LAUNCH the terminal app (benign), never command.run (which is
+# auth-gated). The word 'terminal' pulls small planners toward 'run a shell command', so pin
+# this deterministically. Requires the sentence to END at terminal/window, so "use the terminal
+# TO convert this" still goes to the CLI-synthesis Task agent, not here.
+_TERMINAL_OPEN_RE = re.compile(
+    r"^\s*(?:can you |could you |please )?(?:open|launch|start|bring up|pull up|give me|"
+    r"get me|i(?:'d| would)? like)\s+(?:me\s+)?(?:a|an|the|my)?\s*(?:new\s+)?"
+    r"(?:terminal|console|command[ -]?line|shell)(?:\s+(?:window|emulator|app|prompt))?\s*[.?!]*\s*$",
+    re.I)
+
+
 # CLI-synthesis rung -> the Task agent. Explicit, unambiguous lead-ins ("use the terminal to X",
 # "figure out how to X") so it never hijacks ordinary requests; the planner can also route here.
 _TASK_TRIGGER = re.compile(
@@ -633,6 +644,10 @@ class Orchestrator:
             verb, arg = mkt
             self._publish("Marketplace…")
             task = Task(action=f"market.{verb}", agent="market", params={"argument": arg})
+            return self._render(task, await self._dispatch(task))
+        if _TERMINAL_OPEN_RE.match(goal):  # "open a terminal window" -> launch it, no auth needed
+            self._publish("Opening…")
+            task = Task(action="app.launch", agent="app", params={"argument": "terminal"})
             return self._render(task, await self._dispatch(task))
         tsk = _task_route(goal)  # "use the terminal to X" / "figure out how to X" / "run it"
         if tsk:

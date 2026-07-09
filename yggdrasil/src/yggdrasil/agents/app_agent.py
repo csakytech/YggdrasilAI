@@ -109,6 +109,7 @@ class AppsAgent(BaseAgent):
         'open firefox -> {"steps":[{"action":"app.launch","argument":"firefox"}]}',
         'open the dashboard -> {"steps":[{"action":"app.launch","argument":"dashboard"}]}',
         'open a word editor -> {"steps":[{"action":"app.launch","argument":"word editor"}]}',
+        'open a terminal window -> {"steps":[{"action":"app.launch","argument":"terminal"}]}',
         # Goal-oriented: "set me up to X" ends with the TOOL OPEN, not just folders made.
         'help me set up so I can write a book -> {"steps":[{"action":"file.create_folder","argument":"Book"},'
         '{"action":"file.create_folder","argument":"Book/Chapters"},'
