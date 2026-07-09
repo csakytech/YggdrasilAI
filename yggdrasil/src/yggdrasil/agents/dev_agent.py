@@ -37,10 +37,20 @@ _MODE_Q = ("First, the big one — how would you like to work? You can code it y
            "build it for you while you direct.")
 _NAME_Q = "What should we call the project?"
 
-_MODE_MANUAL = re.compile(r"\b(myself|my ?self|manual|i(?:'| wi)ll (?:code|write)|on my own|i code)\b", re.I)
-_MODE_HYBRID = re.compile(r"\b(hybrid|together|both|with (?:the )?agents?|pair|code with me|mix)\b", re.I)
-_MODE_FULL = re.compile(r"\b(full|agents? (?:do|build|code)|you (?:do|build|code)|vibe|for me|"
-                        r"you choose|automatic)\b", re.I)
+# Fast path for the common ways people answer the coding-mode question. Deliberately loose —
+# anything these miss falls to an LLM classifier (_classify_mode), so phrasing/STT slips still
+# work. Checked hybrid → full → manual (a "with the agents" collaboration beats a bare verb).
+_V = r"(?:build|do|make|write|code|create|handle|develop)"
+_MODE_HYBRID = re.compile(r"\b(?:hybrid|together|both|pair|collaborat|side by side|"
+                          r"with (?:you|the agents?|me)|(?:you|we)(?:'?re| are)? and (?:the )?agents?|"
+                          r"help me|you help|" + _V + r" (?:with|together))\b", re.I)
+_MODE_FULL = re.compile(r"\b(?:full(?:y)?|vibe|automatic(?:ally)?|for me|do it all|"
+                        r"(?:the )?agents?\b[\w\s]{0,15}?\b" + _V + r"|"
+                        r"(?:you|they|them|let (?:the )?agents?|have (?:the )?agents?|let them|have them)"
+                        r"\b[\w\s]{0,12}?\b" + _V + r"|you (?:choose|decide))\b", re.I)
+_MODE_MANUAL = re.compile(r"\b(?:myself|my ?self|manually|manual|on my own|by hand|solo|"
+                          r"i(?:'?ll| will| want to| wanna| can| would like to)?\s*" + _V + r"(?: it)?|"
+                          r"let me " + _V + r"|i(?:'?ll)? handle it)\b", re.I)
 _DECIDE_REST = re.compile(r"\b(?:just )?(?:you )?decide (?:the )?rest\b|\bstop asking\b|"
                           r"\byou (?:take it|figure) from here\b", re.I)
 _APPROVE = re.compile(r"^\s*(?:yes|yeah|yep|ok(?:ay)?|sure|go ahead|do it|approve[d]?|"
@@ -184,13 +194,15 @@ class DevAgent(BaseAgent):
             return self._status()
 
         pending = m.get("pending", "")
-        if pending == _MODE_Q:  # deterministic question 1: coding mode
-            mode = ("manual" if _MODE_MANUAL.search(text) else
-                    "hybrid" if _MODE_HYBRID.search(text) else
-                    "full" if _MODE_FULL.search(text) else "")
-            if not mode:
-                # Don't loop forever re-asking (Michael: "just repeats the question"). Nudge once
-                # with clearer options, then default to full Agent build and move on.
+        if pending == _MODE_Q:  # question 1: coding mode
+            mode = ("hybrid" if _MODE_HYBRID.search(text) else
+                    "full" if _MODE_FULL.search(text) else
+                    "manual" if _MODE_MANUAL.search(text) else "")
+            if not mode:  # regex missed — let the model UNDERSTAND the answer (any phrasing/STT)
+                mode = await self._classify_mode(text)
+            if mode not in ("manual", "hybrid", "full"):
+                # Still unclear: nudge once with clearer options, then default and move on —
+                # never loop the same question (Michael).
                 self._mode_misses += 1
                 if self._mode_misses < 2:
                     mission.ask(m, _MODE_Q)
@@ -218,6 +230,26 @@ class DevAgent(BaseAgent):
             mission.decide(m, pending, text.strip())
             return await self._next_question(m)
         return await self._next_question(m)
+
+    async def _classify_mode(self, text: str) -> str:
+        """Understand how the user wants to build — robust to phrasing and STT slips ('the agents
+        can build it', 'you take the wheel', 'ill have a crack at it')."""
+        if self.llm is None:
+            return ""
+        schema = {"type": "object", "properties": {"mode": {
+            "type": "string", "enum": ["manual", "hybrid", "full", "unclear"]}}, "required": ["mode"]}
+        try:
+            r = await self.llm.generate(
+                system=("The user was asked how they want to build their software project. "
+                        "Classify their reply into exactly one: 'manual' = they will code it "
+                        "themselves (assistant only advises); 'hybrid' = the user and the AI "
+                        "agents code together; 'full' = the AI agents do the building and the "
+                        "user just directs/approves; 'unclear' = it truly isn't a choice between "
+                        "these. Reply JSON only."),
+                prompt=text, schema=schema)
+            return (r.parsed or {}).get("mode", "")
+        except Exception:
+            return ""
 
     async def _next_question(self, m: dict):
         asked = len([d for d in m.get("decisions", []) if d["q"] not in ("Coding mode", "Project name")])
