@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from shlex import quote as shlex_quote
 
 from ..core import mission
 from ..core.permissions import Capability
@@ -693,14 +694,34 @@ class DevAgent(BaseAgent):
         m = mission.load()
         pdir = m.get("project_dir")
         cmd = (m.get("plan", {}).get("run_command") or "").strip()
+        name = m.get("name", "the project")
         if not pdir or not cmd:
             return {"speech": "There's no built project to run yet."}
-        try:  # the user's explicit choice — runs as their own program, in their session
-            subprocess.Popen(cmd, shell=True, cwd=pdir,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
+            return {"speech": "I can only run it on the desktop — sign in there and say "
+                              "“run the project”."}
+        # Launch it in a real TERMINAL WINDOW so it's actually VISIBLE and interactive: a
+        # terminal game (prints/reads input) needs one to show up at all, and a GUI app still
+        # opens its own window while the terminal shows any logs. Headless (the old way) ran it
+        # invisibly with its output discarded — "nothing happened". Keep the window open after
+        # it exits so a quick program or an error doesn't just flash closed.
+        inner = f"{cmd}; echo; echo '[{name} finished — press Enter to close]'; read"
+        term = next((t for t in ("gnome-terminal", "x-terminal-emulator", "xterm", "konsole")
+                     if shutil.which(t)), None)
+        try:
+            if term == "gnome-terminal":
+                argv = [term, f"--working-directory={pdir}", "--", "bash", "-c", inner]
+            elif term:  # xterm / konsole / x-terminal-emulator
+                argv = [term, "-e", "bash", "-c", f"cd {shlex_quote(str(pdir))}; {inner}"]
+            else:  # no terminal emulator — run detached (GUI apps still show their window)
+                subprocess.Popen(cmd, shell=True, cwd=pdir,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return {"speech": f"Starting {name} — enjoy!"}
+            subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as e:
             return {"speech": f"I couldn't start it: {e}"}
-        return {"speech": f"Starting {m.get('name', 'the project')} — {cmd}. Enjoy!"}
+        # Speak cleanly — never read the raw command aloud (it comes out as fast gibberish).
+        return {"speech": f"Starting {name} in a terminal — enjoy!"}
 
     def _status(self):
         m = mission.load()
