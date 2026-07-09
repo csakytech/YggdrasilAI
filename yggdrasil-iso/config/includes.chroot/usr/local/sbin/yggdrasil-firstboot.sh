@@ -18,6 +18,17 @@ log() { echo "yggdrasil-firstboot: $*"; }
 setup_status() { echo "$*" > /run/yggdrasil/status 2>/dev/null; chmod 644 /run/yggdrasil/status 2>/dev/null || true; }
 setup_status "Starting first-time setup…"
 
+# --- Hands-free login: a voice-first OS must not park a keyboard-only login screen in front
+#     of the very people it's built for. Enable GDM autologin for the primary user (UID 1000)
+#     so the machine boots straight to the desktop with the assistant listening (also lets
+#     scheduled briefings fire without a manual login). Turn it off anytime in
+#     Settings > Users, or remove the two lines from /etc/gdm3/daemon.conf. ---
+FIRST_USER=$(awk -F: '$3==1000{print $1; exit}' /etc/passwd)
+if [ -n "$FIRST_USER" ] && ! grep -q '^AutomaticLoginEnable' /etc/gdm3/daemon.conf 2>/dev/null; then
+    printf 'AutomaticLoginEnable=true\nAutomaticLogin=%s\n' "$FIRST_USER" >> /etc/gdm3/daemon.conf
+    log "GDM autologin enabled for ${FIRST_USER}"
+fi
+
 # --- detect GPU vendor (works with just the open drivers — no proprietary driver needed) ---
 GPU=$(lspci -nn 2>/dev/null | grep -iE 'vga|3d controller|display controller' | head -1)
 case "$GPU" in
