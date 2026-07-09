@@ -13,7 +13,7 @@ import sys
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable
 
-from . import config, trace
+from . import config, mission, trace
 from . import models as models_mod
 from .bus import Bus, Result, Status, Task
 from .focus import active_window
@@ -537,10 +537,29 @@ class Orchestrator:
         if self.activity:
             self.activity.publish(text)
 
-    async def handle(self, goal: str) -> str:
+    async def _answer_dev(self, goal: str) -> str:
+        """Route an utterance to the Dev agent as the mission's answer/continuation, capturing
+        whatever question it asks next. The mission is the conversation's focus while it's active."""
+        self._pending_reply = None
+        if _DEV_CANCEL_RE.match(goal.strip()):
+            task = Task(action="dev.cancel", agent="dev", params={})
+            return self._render(task, await self._dispatch(task))
+        self._publish("Listening…")
+        task = Task(action="dev.answer", agent="dev", params={"argument": goal})
+        result = await self._dispatch(task)
+        if isinstance(result.data, dict):
+            if result.data.get("await_reply"):
+                self._pending_reply = result.data.get("agent")
+            if result.data.get("await_confirm"):
+                self._pending_confirm = result.data.get("agent")
+        return self._render(task, result)
+
+    async def handle(self, goal: str, addressed: bool = True) -> str:
+        # ``addressed`` = the user spoke the assistant's name this utterance (topic-change signal).
+        # Typed input and follow-ups default sensibly; the voice loop sets it explicitly.
         # Never let a transient error (e.g. an LLM/network hiccup) crash the assistant.
         try:
-            return await self._handle(goal)
+            return await self._handle(goal, addressed)
         except Exception as e:  # noqa: BLE001
             print(f"[orchestrator] error handling goal: {e!r}", file=sys.stderr)
             msg = str(e).lower()
@@ -554,14 +573,16 @@ class Orchestrator:
                 return ("I couldn't complete that one, but I can help another way — I work with files "
                         "and folders, apps, web search, lookups, reminders and memory. What do you need?")
 
-    async def _handle(self, goal: str) -> str:
+    async def _handle(self, goal: str, addressed: bool = True) -> str:
         # Users address the assistant by name mid-conversation too ("Jarvis, set it up") —
         # inside the conversation window the voice loop doesn't strip it, and every anchored
         # matcher downstream (approvals, yes/no confirms, interview answers) would miss.
-        # Strip a leading "<name>," / "hey <name>" here, once, for every route.
+        # Strip a leading "<name>," / "hey <name>" here, once, for every route. A name present
+        # this utterance also means "addressed" even mid-conversation (a topic-change signal).
         stripped = re.sub(rf"^\s*(?:hey\s+)?{re.escape(config.get_name())}\b[,.!:]?\s*", "",
                           goal.strip(), flags=re.I)
-        if stripped:
+        if stripped and stripped != goal.strip():
+            addressed = True
             goal = stripped
         goal = self._rewrite_pronouns(goal)
         if _DANGER_RE.search(goal):  # catastrophic intent -> hard refusal, never reaches the model
@@ -579,21 +600,16 @@ class Orchestrator:
                 task = Task(action=f"{agent}.cancel", agent=agent, params={})
                 return self._render(task, await self._dispatch(task))
             # not a yes/no -> drop the pending confirmation and handle the new request normally
-        if self._pending_reply:  # an agent asked a real question (Dev interview) — route the answer to it
-            agent = self._pending_reply
-            self._pending_reply = None
-            if _DEV_CANCEL_RE.match(goal.strip()):
-                task = Task(action=f"{agent}.cancel", agent=agent, params={})
-                return self._render(task, await self._dispatch(task))
-            self._publish("Listening…")
-            task = Task(action=f"{agent}.answer", agent=agent, params={"argument": goal})
-            result = await self._dispatch(task)
-            if isinstance(result.data, dict):
-                if result.data.get("await_reply"):
-                    self._pending_reply = result.data.get("agent")
-                if result.data.get("await_confirm"):
-                    self._pending_confirm = result.data.get("agent")
-            return self._render(task, result)
+        # FOCUS. While a Development mission is mid-setup it IS the topic. A FOLLOW-UP (no name)
+        # continues it — the answer to the assistant's question — so it never leaks to a global
+        # route or a mishearing-driven topic jump. Saying the NAME signals a possible topic change,
+        # so a name-addressed utterance goes through normal routing first and only falls back to the
+        # mission if nothing else matched (so "Jarvis, set it up" still answers, but "Jarvis, open a
+        # file window" switches away — the mission stays alive, resumable by name).
+        in_dev = self._pending_reply is not None or (
+            mission.active() and mission.load().get("stage") in ("interview", "proposal"))
+        if in_dev and not addressed:
+            return await self._answer_dev(goal)
         if _EXPLAIN_RE.match(goal.strip()):  # "why did you…" -> explain my last action, reliably
             self._publish("")
             task = Task(action="explain.why", agent="explain", params={"argument": ""})
@@ -696,6 +712,10 @@ class Orchestrator:
               file=sys.stderr, flush=True)
         if not tasks:
             self._publish("")
+            # Name-addressed, nothing global matched, and a mission is waiting -> it was the answer
+            # after all ("Jarvis, set it up" / "Jarvis, you choose"), not idle chatter.
+            if in_dev:
+                return await self._answer_dev(goal)
             reply = await self._assist(goal, ctx)
             trace.record(trace.Decision(goal=goal, active=active, memory_used=bool(ctx),
                                         route="conversation", outcome=reply))

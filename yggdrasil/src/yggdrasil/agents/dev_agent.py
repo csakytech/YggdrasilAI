@@ -110,6 +110,7 @@ class DevAgent(BaseAgent):
         self.coder = coder or llm         # coder role — writing and repairing the actual code
         self.sandbox_root = Path(sandbox_root) if sandbox_root else (Path.home() / "YggdrasilSandbox")
         self._build_thread = None         # liveness — a restart mid-build must not strand the mission
+        self._mode_misses = 0             # so an unclear coding-mode answer can't loop forever
 
     async def _execute(self, verb, params):
         arg = (params.get("argument") or "").strip()
@@ -188,10 +189,17 @@ class DevAgent(BaseAgent):
                     "hybrid" if _MODE_HYBRID.search(text) else
                     "full" if _MODE_FULL.search(text) else "")
             if not mode:
-                mission.ask(m, _MODE_Q)
-                return {"speech": "Say “myself”, “together”, or “the Agents build it” — "
-                                  "which would you like?",
-                        "await_reply": True, "agent": self.domain}
+                # Don't loop forever re-asking (Michael: "just repeats the question"). Nudge once
+                # with clearer options, then default to full Agent build and move on.
+                self._mode_misses += 1
+                if self._mode_misses < 2:
+                    mission.ask(m, _MODE_Q)
+                    return {"speech": "No problem — you can say “I'll code it myself”, "
+                                      "“let's do it together”, or “you build it”. Which sounds good?",
+                            "await_reply": True, "agent": self.domain}
+                mode = "full"
+                mission.log(m, "Coding mode unclear — defaulting to full Agent build.")
+            self._mode_misses = 0
             m["coding_mode"] = mode
             mission.decide(m, "Coding mode",
                            {"manual": "you code, Agents assist",

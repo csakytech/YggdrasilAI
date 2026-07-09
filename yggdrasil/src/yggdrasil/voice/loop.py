@@ -173,22 +173,29 @@ class VoiceAssistant:
                 text = self.capture_text()  # waits for speech, transcribes; "" if none in ~4s
                 if not text:
                     continue
-                if in_convo:
-                    command = text  # follow-up within the conversation window — no name needed
-                    _wake_display()
-                else:
-                    command = self._strip_name(text)
-                    if command is None:
-                        continue  # speech not addressed to us — ignore
+                # Detect the name EVEN inside the conversation window: saying it is the user's
+                # "new topic" signal (addressed=True); a nameless follow-up continues the current
+                # topic (addressed=False).
+                named = self._strip_name(text)  # None = no name; "" = only the name; else remainder
+                if named is not None:
+                    addressed = True
                     _wake_display()  # spoken to by name -> screen on, like a mouse-wiggle
-                    if not command:  # only the name was spoken
+                    if not named:  # only the name was spoken
                         self.speaker.say("Yes?")
                         command = self.capture_text()
                         if not command:
                             conversation_until = 0.0
                             continue
-                print(f"you (voice) > {command}", flush=True)
-                reply, over = self.on_text(command)
+                    else:
+                        command = named
+                elif in_convo:
+                    addressed = False
+                    command = text  # follow-up within the conversation window — same topic
+                    _wake_display()
+                else:
+                    continue  # speech not addressed to us — ignore
+                print(f"you (voice) > {command}{'' if addressed else '  [follow-up]'}", flush=True)
+                reply, over = self.on_text(command, addressed)
                 print(f"jarvis > {reply}", flush=True)
                 self.speaker.say(reply)
                 conversation_until = 0.0 if over else time.time() + CONVERSATION_WINDOW_S
@@ -209,7 +216,8 @@ class VoiceAssistant:
             frames += 1
             # One bad utterance (STT/agent/TTS error) must never stop us — recover and continue.
             try:
-                if time.time() >= conversation_until:  # SLEEPING: watch for wake word
+                asleep = time.time() >= conversation_until  # woke by wake word = addressed
+                if asleep:  # SLEEPING: watch for wake word
                     score = float(self.wake.predict(frame)[self.wake_key])
                     peak = max(peak, score)
                     if time.time() - last_beat >= 10.0:  # heartbeat: proves audio is flowing
@@ -225,8 +233,8 @@ class VoiceAssistant:
                 if not text:
                     conversation_until = 0.0
                     continue
-                print(f"you (voice) > {text}", flush=True)
-                reply, over = self.on_text(text)
+                print(f"you (voice) > {text}{'' if asleep else '  [follow-up]'}", flush=True)
+                reply, over = self.on_text(text, asleep)
                 print(f"jarvis > {reply}", flush=True)
                 self.speaker.say(reply)
                 conversation_until = 0.0 if over else time.time() + CONVERSATION_WINDOW_S
@@ -297,8 +305,8 @@ def main() -> None:
         build_orchestrator(VoiceChannel(), voice_auth_resolver)
     )
 
-    def on_text(text: str):
-        reply = loop.run_until_complete(orch.handle(text))
+    def on_text(text: str, addressed: bool = True):
+        reply = loop.run_until_complete(orch.handle(text, addressed))
         return reply, _ends_conversation(text)
 
     assistant = VoiceAssistant(on_text, speaker, recognizer, greeting=f"{name} online.")
