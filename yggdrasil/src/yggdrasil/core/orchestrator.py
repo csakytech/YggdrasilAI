@@ -547,6 +547,14 @@ class Orchestrator:
                         "and folders, apps, web search, lookups, reminders and memory. What do you need?")
 
     async def _handle(self, goal: str) -> str:
+        # Users address the assistant by name mid-conversation too ("Jarvis, set it up") —
+        # inside the conversation window the voice loop doesn't strip it, and every anchored
+        # matcher downstream (approvals, yes/no confirms, interview answers) would miss.
+        # Strip a leading "<name>," / "hey <name>" here, once, for every route.
+        stripped = re.sub(rf"^\s*(?:hey\s+)?{re.escape(config.get_name())}\b[,.!:]?\s*", "",
+                          goal.strip(), flags=re.I)
+        if stripped:
+            goal = stripped
         goal = self._rewrite_pronouns(goal)
         if _DANGER_RE.search(goal):  # catastrophic intent -> hard refusal, never reaches the model
             self._publish("")

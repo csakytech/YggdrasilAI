@@ -283,12 +283,26 @@ class DevAgent(BaseAgent):
                 "await_reply": True, "agent": self.domain}
 
     async def _proposal_answer(self, m: dict, text: str):
-        if _APPROVE.match(text):
+        t = text.strip()
+        if re.match(r"^\s*(?:no|nope|don'?t|do not|cancel|stop|wait|hold on)\b", t, re.I):
+            return {"speech": "Okay — tell me what you'd like different, or say "
+                              "“cancel development”.",
+                    "await_reply": True, "agent": self.domain}
+        # Approval: the anchored phrases, or any SHORT go-ahead ("set it up now", "yes please").
+        # Never treat an approval attempt as a change request — that regenerates the whole plan
+        # and re-asks the same question (the loop Michael hit live).
+        if _APPROVE.match(t) or (len(t.split()) <= 6 and
+                                 re.search(r"\b(?:set it up|build it|go ahead|do it|proceed|"
+                                           r"yes|start|make it)\b", t, re.I)):
             return self._approve(m)
-        if re.search(r"\bpropose (?:the )?plan\b|\btry again\b", text, re.I):
+        if re.search(r"\bpropose (?:the )?plan\b|\btry again\b", t, re.I):
             return await self._propose(m)
-        mission.log(m, f"Change requested: {text.strip()}")
-        return await self._propose(m, change=text.strip())
+        if len(t.split()) <= 3:  # too short to be a real change request — clarify, DON'T regenerate
+            return {"speech": "Say “yes, set it up” to build it as planned, tell me what to "
+                              "change, or say “cancel development”.",
+                    "await_reply": True, "agent": self.domain}
+        mission.log(m, f"Change requested: {t}")
+        return await self._propose(m, change=t)
 
     def _approve(self, m: dict):
         name = m.get("name") or "Project"
