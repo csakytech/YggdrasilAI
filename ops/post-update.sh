@@ -12,6 +12,15 @@ if ! dpkg -s systemd-timesyncd >/dev/null 2>&1; then
 fi
 systemctl enable --now systemd-timesyncd >/dev/null 2>&1 || true
 
+# --- v0.9: upgrade the updater helper itself -----------------------------------------------
+# v0.7-era installs have a helper WITHOUT this migrations hook, so they must run this script
+# by hand once (release-notes one-liner). Installing the current helper here makes that single
+# run permanent: every future update applies its migrations automatically.
+UPD_SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/local/sbin/yggdrasil-update
+if [ -f "$UPD_SRC" ] && ! grep -q "post-update.sh" /usr/local/sbin/yggdrasil-update 2>/dev/null; then
+    install -m 755 "$UPD_SRC" /usr/local/sbin/yggdrasil-update || true
+fi
+
 # --- v0.9: the HUD launcher was never shipped ----------------------------------------------
 # /etc/xdg/autostart/yggdrasil-hud.desktop Execs `yggdrasil-hud`, but the launcher itself
 # was missing from every ISO — so the "Thinking…" status strip silently never started.
