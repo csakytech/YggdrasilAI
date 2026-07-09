@@ -473,6 +473,10 @@ _TERMINAL_OPEN_RE = re.compile(
     r"get me|i(?:'d| would)? like)\s+(?:me\s+)?(?:a|an|the|my)?\s*(?:new\s+)?"
     r"(?:terminal|console|command[ -]?line|shell)(?:\s+(?:window|emulator|app|prompt))?\s*[.?!]*\s*$",
     re.I)
+_TERMINAL_CLOSE_RE = re.compile(
+    r"^\s*(?:can you |could you |please )?(?:close|quit|exit|kill|shut|end)\s+(?:down\s+)?"
+    r"(?:the|my|a|this)?\s*(?:terminal|console|command[ -]?line|shell)(?:\s+(?:window|emulator|app))?"
+    r"\s*[.?!]*\s*$", re.I)
 
 
 # CLI-synthesis rung -> the Task agent. Explicit, unambiguous lead-ins ("use the terminal to X",
@@ -539,14 +543,21 @@ class Orchestrator:
         self.llm = llm
         self.assistant_name = assistant_name
         self.activity = activity  # publishes "what I'm doing" for the HUD/dashboard
+        self._heard = ""          # the last transcript — shown in the HUD to diagnose mishearings
         self._last_path: str | None = None
         self._recent_created: list[str] = []  # paths created this session — "those files you made"
         self._pending_confirm: str | None = None  # an agent awaiting a spoken yes/no (e.g. file delete)
         self._pending_reply: str | None = None  # an agent mid-conversation (e.g. the Dev interview)
 
     def _publish(self, text: str) -> None:
-        if self.activity:
-            self.activity.publish(text)
+        # Show WHAT I HEARD alongside what I'm doing, so a wrong transcript (the usual cause of
+        # "why did he do that?") is visible on the HUD as it happens — Michael's debugging aid.
+        if not self.activity:
+            return
+        if text and self._heard:
+            h = self._heard if len(self._heard) <= 48 else self._heard[:47] + "…"
+            text = f"“{h}”  ·  {text}"
+        self.activity.publish(text)
 
     async def _answer_dev(self, goal: str) -> str:
         """Route an utterance to the Dev agent as the mission's answer/continuation, capturing
@@ -568,6 +579,7 @@ class Orchestrator:
     async def handle(self, goal: str, addressed: bool = True) -> str:
         # ``addressed`` = the user spoke the assistant's name this utterance (topic-change signal).
         # Typed input and follow-ups default sensibly; the voice loop sets it explicitly.
+        self._heard = (goal or "").strip()  # surface the transcript on the HUD while we work
         # Never let a transient error (e.g. an LLM/network hiccup) crash the assistant.
         try:
             return await self._handle(goal, addressed)
@@ -648,6 +660,10 @@ class Orchestrator:
         if _TERMINAL_OPEN_RE.match(goal):  # "open a terminal window" -> launch it, no auth needed
             self._publish("Opening…")
             task = Task(action="app.launch", agent="app", params={"argument": "terminal"})
+            return self._render(task, await self._dispatch(task))
+        if _TERMINAL_CLOSE_RE.match(goal):  # "close the terminal" -> close the app (deterministic)
+            self._publish("Closing…")
+            task = Task(action="app.close", agent="app", params={"argument": "terminal"})
             return self._render(task, await self._dispatch(task))
         tsk = _task_route(goal)  # "use the terminal to X" / "figure out how to X" / "run it"
         if tsk:
