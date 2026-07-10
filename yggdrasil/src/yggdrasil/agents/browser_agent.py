@@ -140,20 +140,23 @@ class BrowserAgent(BaseAgent):
         if not ctx.get("query"):
             return {"speech": "I can page through a web search I opened for you — say "
                               "“search for …” first, then “next page”."}
-        cur = ctx["page"]
-        a = arg.lower()
-        if "next" in a or a in ("", "forward"):
-            target = cur + 1
-        elif "prev" in a or "back" in a or "before" in a:
-            target = cur - 1
-        elif "first" in a:
+        cur = int(ctx.get("page", 1))
+        a = arg.lower().strip()
+        if a == "last":
+            return {"speech": "I can't jump to the very last page of an endless list of "
+                              "results — say “next page”, or a page number like “page five”."}
+        if a == "first" or "first" in a:
             target = 1
+        elif a == "previous" or "prev" in a:
+            target = cur - 1
+            if target < 1:
+                return {"speech": "You're already on the first page."}
+        elif a == "next" or a in ("", "forward"):
+            target = cur + 1
         else:
             m = re.search(r"(\d+)", a)
             target = int(m.group(1)) if m else cur + 1
         target = max(1, min(target, 20))
-        if target == cur and ("prev" in a or "back" in a):
-            return {"speech": "You're already on the first page."}
         url = browsing.page_url(target)
         if not url:
             return {"speech": "I don't have a search to page through."}

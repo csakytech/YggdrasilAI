@@ -346,9 +346,13 @@ _DEV_STATUS_RE = re.compile(
 _SCROLL_RE = re.compile(
     r"\bscroll\b|\bpage (?:up|down)\b|\b(?:go|jump|take me) to (?:the )?(?:top|bottom) "
     r"of (?:the )?(?:page|screen|document|list)\b|\bgo to (?:the )?(?:top|bottom)\b", re.I)
+# first/last/next/previous page (with or without "the"/"results") ALL route here, so a
+# pagination phrase never leaks to the planner and gets searched (the "first" -> Google
+# search-for-"first" bug). Numeric: "go to page 4" / "page 4".
 _PAGE_RE = re.compile(
-    r"\b(?:next|previous|prev|the last|the first) page\b|\bgo (?:to |back to )?page (?:number )?\d+\b"
-    r"|\b(?:go to |show )?page (?:number )?\d+\b", re.I)
+    r"\b(?:the )?(?:next|previous|prev|last|first)(?: results?| search)? page\b"
+    r"|\bgo (?:to |back to )?page (?:number )?\d+\b"
+    r"|\b(?:go to |show |jump to )?page (?:number )?\d+\b", re.I)
 _BROWSER_NAV_RE = re.compile(
     r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?"
     r"(go back|back|go forward|forward|reload(?: the page| this page)?|refresh(?: the page| this page)?)"
@@ -373,14 +377,18 @@ def _scroll_direction(goal: str) -> str:
 
 def _page_target(goal: str) -> str:
     g = goal.lower()
+    m = re.search(r"page (?:number )?(\d+)", g)  # an explicit number wins ("go back to page 4")
+    if m:
+        return m.group(1)
     if "next" in g:
         return "next"
-    if "prev" in g or "previous" in g or "last page" in g or "go back" in g:
+    if "previous" in g or "prev" in g:
         return "previous"
-    if "first page" in g:
+    if "first" in g:
         return "first"
-    m = re.search(r"page (?:number )?(\d+)", g)
-    return m.group(1) if m else "next"
+    if "last" in g:
+        return "last"
+    return "next"
 
 
 def _browser_nav_route(goal: str):
