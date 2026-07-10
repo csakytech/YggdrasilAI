@@ -393,10 +393,14 @@ def _page_target(goal: str) -> str:
 
 # Deep page reading (Marionette). "read me the links" / "open the Wikipedia one" / "read the page".
 # Show/hide visible numbered badges — for sighted, hands-free users who can SEE but not click.
+# Bare "click" (the Handsfree pattern) + "number the links" -> paint the badges. Bare click must
+# be near-standalone so "click number 3" / "click the video" fall through to open_link (select).
 _SHOWNUM_RE = re.compile(
     r"\bnumber the links?\b|\blabel the links?\b"
     r"|\b(?:show|display|put|add|highlight)\b.{0,24}\b(?:numbers?|labels?)\b"
-    r"|\bshow (?:me )?(?:the )?link numbers?\b", re.I)
+    r"|\bshow (?:me )?(?:the )?(?:link |clickable )?numbers?\b"
+    r"|^\s*(?:hey\s+\w+[,\s]+)?(?:can you |please )?click"
+    r"(?:\s+(?:here|links?|things?|mode|on (?:the )?(?:page|links?)))?\s*[.?!]*$", re.I)
 _HIDENUM_RE = re.compile(
     r"\b(?:hide|remove|clear|turn off|get rid of)\b.{0,18}\b(?:numbers?|labels?|badges?)\b", re.I)
 _READLINKS_RE = re.compile(

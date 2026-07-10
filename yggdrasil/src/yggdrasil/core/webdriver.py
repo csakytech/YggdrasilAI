@@ -111,49 +111,64 @@ def client() -> Marionette:
 
 # --- page-reading helpers (JavaScript run in the live page) ---------------------------------
 
-# Meaningful, visible links (text 4–90 chars), de-duplicated, capped. Scoped to the MAIN
-# content area when the page has one, so search results / article links lead instead of the
-# site's nav chrome. arguments[0] = draw numbered badges on the page (so a sighted, hands-free
-# user can SEE the numbers and say "open number 5" without hearing them all read out). The
-# element order MUST match get_links, so the badge numbers == the spoken numbers.
-_LINKS_JS = r"""
+# Everything CLICKABLE and visible — links, buttons, submit inputs — numbered in document
+# order (content area first). Each element is tagged data-ygg-n so we can CLICK it later
+# (element.click() — works for buttons and JS links, not just hrefs). arguments[0] = also
+# draw numbered badges (the Handsfree-for-Web pattern: say "click", see numbers, "select 4").
+# The tag numbers == badge numbers == spoken numbers, always.
+_CLICKABLES_JS = r"""
 const draw = arguments[0];
+const SEL = 'a[href], button, [role=button], input[type=submit], input[type=button], summary';
 const root = document.querySelector('#search, #rso, main, [role=main], #content, #mw-content-text, article') || document.body;
 document.querySelectorAll('.ygg-badge').forEach(e => e.remove());
-let seen = new Set(); let items = [];
+document.querySelectorAll('[data-ygg-n]').forEach(e => e.removeAttribute('data-ygg-n'));
+let items = []; const seenEl = new Set(); const seenLinkText = new Set();
 const collect = (scope) => {
-  for (const a of scope.querySelectorAll('a')) {
-    if (items.length >= 40) break;
-    if (!a.offsetParent) continue;
-    if (!a.href || a.href.startsWith('javascript')) continue;
-    let t = (a.innerText || a.getAttribute('aria-label') || '').trim().replace(/\s+/g,' ');
-    if (t.length < 4 || t.length > 90) continue;
-    const key = t.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    items.push({el: a, text: t, href: a.href});
+  for (const el of scope.querySelectorAll(SEL)) {
+    if (items.length >= 60) return;
+    if (seenEl.has(el) || !el.offsetParent) continue;
+    const isLink = el.tagName === 'A';
+    if (isLink && (!el.href || el.href.startsWith('javascript'))) continue;
+    let t = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().replace(/\s+/g,' ');
+    if (t.length < 2 || t.length > 90) continue;
+    if (isLink) {                       // dedupe repeated link TEXT; buttons may repeat
+      const key = t.toLowerCase();
+      if (seenLinkText.has(key)) continue;
+      seenLinkText.add(key);
+    }
+    seenEl.add(el);
+    items.push({el, text: t, kind: isLink ? 'link' : 'button', href: isLink ? el.href : ''});
   }
 };
 collect(root);
-if (items.length < 5 && root !== document.body) { seen = new Set(); items = []; collect(document.body); }
-if (draw) {
-  const sx = window.scrollX, sy = window.scrollY;
-  items.forEach((it, i) => {
-    const r = it.el.getBoundingClientRect();
-    if (r.width === 0 && r.height === 0) return;
-    const b = document.createElement('div');
-    b.className = 'ygg-badge';
-    b.textContent = String(i + 1);
-    b.setAttribute('style',
-      'position:absolute!important;z-index:2147483647!important;background:#f0c040!important;'
-      + 'color:#000!important;font:bold 12px/1.3 sans-serif!important;padding:0 5px!important;'
-      + 'border-radius:8px!important;box-shadow:0 1px 3px rgba(0,0,0,.6)!important;'
-      + 'pointer-events:none!important;white-space:nowrap!important;'
-      + 'left:' + (r.left + sx - 2) + 'px;top:' + (r.top + sy - 9) + 'px;');
-    document.body.appendChild(b);
-  });
-}
-return items.map(o => ({text: o.text, href: o.href}));
+if (items.length < 5 && root !== document.body) collect(document.body);
+const sx = window.scrollX, sy = window.scrollY;
+items.forEach((it, i) => {
+  it.el.setAttribute('data-ygg-n', String(i + 1));
+  if (!draw) return;
+  const r = it.el.getBoundingClientRect();
+  if (r.width === 0 && r.height === 0) return;
+  const b = document.createElement('div');
+  b.className = 'ygg-badge';
+  b.textContent = String(i + 1);
+  b.setAttribute('style',
+    'position:absolute!important;z-index:2147483647!important;background:#f0c040!important;'
+    + 'color:#000!important;font:bold 12px/1.3 sans-serif!important;padding:0 5px!important;'
+    + 'border-radius:8px!important;box-shadow:0 1px 3px rgba(0,0,0,.6)!important;'
+    + 'pointer-events:none!important;white-space:nowrap!important;'
+    + 'left:' + (r.left + sx - 2) + 'px;top:' + (r.top + sy - 9) + 'px;');
+  document.body.appendChild(b);
+});
+return items.map((o, i) => ({n: i + 1, text: o.text, kind: o.kind, href: o.href}));
+"""
+
+_CLICK_N_JS = r"""
+const el = document.querySelector('[data-ygg-n="' + arguments[0] + '"]');
+if (!el) return {ok: false, text: ''};
+const t = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().replace(/\s+/g,' ');
+el.scrollIntoView({block: 'center'});
+el.click();
+return {ok: true, text: t.slice(0, 80)};
 """
 
 _HIDE_BADGES_JS = "document.querySelectorAll('.ygg-badge').forEach(e => e.remove()); return true;"
@@ -178,10 +193,21 @@ return t.slice(0, 6000);
 """
 
 
+def get_clickables(badge: bool = False) -> list[dict]:
+    """Enumerate everything clickable ({n, text, kind, href}), tagging each element so
+    ``click_number`` can act on it. If ``badge``, paint matching numbered badges on the page."""
+    return client().execute(_CLICKABLES_JS, [badge]) or []
+
+
 def get_links(badge: bool = False) -> list[dict]:
-    """Enumerate the page's meaningful links. If ``badge``, also paint matching numbered
-    badges onto the page (for sighted, hands-free users)."""
-    return client().execute(_LINKS_JS, [badge]) or []
+    """Just the links from the clickable enumeration (numbers preserved)."""
+    return [c for c in get_clickables(badge) if c.get("kind") == "link"]
+
+
+def click_number(n: int) -> dict:
+    """Click clickable number ``n`` (from the last enumeration). {ok, text}."""
+    r = client().execute(_CLICK_N_JS, [str(int(n))])
+    return r if isinstance(r, dict) else {"ok": False, "text": ""}
 
 
 def hide_badges() -> None:

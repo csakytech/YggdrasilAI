@@ -105,7 +105,7 @@ class BrowserAgent(BaseAgent):
     def __init__(self, bus, perms, llm=None) -> None:
         super().__init__(bus, perms)
         self.llm = llm                 # reasoner — match spoken descriptions + summarize pages
-        self._links: list[dict] = []   # last read link list (text + href), for "open number 3"
+        self._items: list[dict] = []   # last enumerated clickables (n/text/kind/href), for "select N"
 
     async def _execute(self, verb: str, params: dict[str, Any]) -> Any:
         if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
@@ -145,82 +145,97 @@ class BrowserAgent(BaseAgent):
                           "Say “search for …” or “open firefox” and I'll set it up so I can read "
                           "the links and content."}
 
-    def _read_links(self):
-        if not webdriver.available():
-            return self._no_reader()
-        try:
-            self._links = webdriver.get_links(badge=True)  # read AND paint the numbers
-        except Exception:
-            return self._no_reader()
-        if not self._links:
-            return {"speech": "I don't see any links to read on this page."}
-        shown = self._links[:12]
-        spoken = ". ".join(f"{i + 1}, {ln['text']}" for i, ln in enumerate(shown))
-        more = f" There are {len(self._links) - len(shown)} more." if len(self._links) > len(shown) else ""
-        return {"speech": f"Here are the links, and I've numbered them on screen. {spoken}.{more} "
-                          "Say “open number …”, or describe one, like “open the Wikipedia one”.",
-                "list": [f"{i + 1}. {ln['text']}" for i, ln in enumerate(self._links)]}
-
     def _show_numbers(self):
+        """The 'click' path: number every clickable thing on screen; the user then says 'select N'.
+        Short reply — the numbers are on the page, not in your ear."""
         if not webdriver.available():
             return self._no_reader()
         try:
-            self._links = webdriver.get_links(badge=True)
+            self._items = webdriver.get_clickables(badge=True)
         except Exception:
             return self._no_reader()
-        if not self._links:
-            return {"speech": "I don't see any links to number on this page."}
-        return {"speech": f"I've numbered {len(self._links)} links on the page. Say “open number …”, "
-                          "or “hide the numbers” to clear them.",
-                "list": [f"{i + 1}. {ln['text']}" for i, ln in enumerate(self._links)]}
+        if not self._items:
+            return {"speech": "I don't see anything clickable on this page."}
+        return {"speech": f"There are {len(self._items)} things you can click — the numbers are on "
+                          "screen. Say “select” and a number, or “hide the numbers”.",
+                "list": [f"{c['n']}. {c['text']}" for c in self._items]}
+
+    def _read_links(self):
+        """The audio path (for someone who can't see the screen): read the links aloud, numbered."""
+        if not webdriver.available():
+            return self._no_reader()
+        try:
+            self._items = webdriver.get_clickables(badge=True)
+        except Exception:
+            return self._no_reader()
+        links = [c for c in self._items if c.get("kind") == "link"]
+        if not links:
+            return {"speech": "I don't see any links to read on this page."}
+        shown = links[:12]
+        spoken = ". ".join(f"{c['n']}, {c['text']}" for c in shown)
+        more = f" And {len(links) - len(shown)} more." if len(links) > len(shown) else ""
+        return {"speech": f"Here are the links. {spoken}.{more} Say “select” and a number, or "
+                          "describe one, like “open the Wikipedia one”.",
+                "list": [f"{c['n']}. {c['text']}" for c in links]}
 
     async def _open_link(self, ref: str):
+        """'select 4' / 'open number 4' / 'the Wikipedia one' -> CLICK that numbered element
+        (works for buttons and JS links, not just plain hrefs)."""
         if not webdriver.available():
             return self._no_reader()
-        if not self._links:
+        if not self._items:
             try:
-                self._links = webdriver.get_links()
+                self._items = webdriver.get_clickables(badge=False)  # tag elements even w/o badges
             except Exception:
-                self._links = []
-        if not self._links:
-            return {"speech": "I don't have any links yet — say “read me the links” first."}
-        idx = await self._resolve_link(ref)
-        if idx is None or not (0 <= idx < len(self._links)):
-            return {"speech": f"I couldn't tell which link you meant by “{ref}”. Say a number, "
-                              "like “open number three”, or read me the links again."}
-        ln = self._links[idx]
+                self._items = []
+        if not self._items:
+            return {"speech": "Say “click” first so I can number what's on the page."}
+        n = await self._resolve_ref(ref)
+        if n is None:
+            return {"speech": f"I couldn't tell which one you meant by “{ref}”. Say “select” and a "
+                              "number, like “select four”."}
         try:
-            webdriver.client().navigate(ln["href"])
+            r = webdriver.click_number(n)
         except Exception:
-            return {"speech": "I found the link but couldn't open it."}
-        self._links = []  # the page is changing; re-read on the new one
-        return {"speech": f"Opening {ln['text']}."}
+            r = {"ok": False, "text": ""}
+        if not r.get("ok"):
+            # fallback: if it's a link, navigate its href
+            item = next((c for c in self._items if c["n"] == n), None)
+            if item and item.get("href"):
+                try:
+                    webdriver.client().navigate(item["href"])
+                    self._items = []
+                    return {"speech": f"Opening {item['text']}."}
+                except Exception:
+                    pass
+            return {"speech": "I couldn't click that one."}
+        label = r.get("text") or (next((c["text"] for c in self._items if c["n"] == n), "it"))
+        self._items = []  # the page likely changed — re-number on the new one
+        return {"speech": f"Selected {label}."}
 
-    async def _resolve_link(self, ref: str) -> int | None:
+    async def _resolve_ref(self, ref: str) -> int | None:
+        """Resolve a spoken reference to a clickable NUMBER (1-based), or None."""
         ref = (ref or "").strip()
-        # 1) an explicit number / ordinal ("number 3", "the third", "3")
-        n = _spoken_number(ref)
-        if n is not None:
-            return n - 1
-        texts = [ln["text"] for ln in self._links]
-        # 2) fuzzy text match (fast, offline)
-        got, confident, _ = resolver.resolve(ref, texts, texts)
+        n = _spoken_number(ref)                            # 1) "number 3" / "the third" / "4"
+        if n is not None and 1 <= n <= len(self._items):
+            return n
+        texts = [c["text"] for c in self._items]
+        got, confident, _ = resolver.resolve(ref, texts, texts)   # 2) fuzzy text match
         if got and confident:
-            return texts.index(got)
-        # 3) the model matches a loose description ("the video one", "the news article")
-        if self.llm is not None and ref:
-            listing = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
+            return self._items[texts.index(got)]["n"]
+        if self.llm is not None and ref:                   # 3) loose description via the model
+            listing = "\n".join(f"{c['n']}. {c['text']}" for c in self._items)
             try:
                 r = await self.llm.generate(
-                    system=("The user wants to open one of these numbered web links by "
-                            "describing it. Reply with JSON {\"number\": N} giving the best "
-                            "matching link number, or {\"number\": 0} if none clearly match."),
-                    prompt=f"Links:\n{listing}\n\nUser said: {ref}",
+                    system=("The user wants to click one of these numbered items on a web page by "
+                            "describing it. Reply JSON {\"number\": N} with the best match, or "
+                            "{\"number\": 0} if none clearly match."),
+                    prompt=f"Items:\n{listing}\n\nUser said: {ref}",
                     schema={"type": "object", "properties": {"number": {"type": "integer"}},
                             "required": ["number"]})
                 num = int((r.parsed or {}).get("number", 0))
-                if 1 <= num <= len(texts):
-                    return num - 1
+                if 1 <= num <= len(self._items):
+                    return num
             except Exception:
                 pass
         return None
