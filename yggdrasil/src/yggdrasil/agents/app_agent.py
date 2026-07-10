@@ -304,6 +304,8 @@ class AppsAgent(BaseAgent):
             before = self._window_ids()
             subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.last_app = "firefox"
+            from ..core import browsing  # remember the search so "next page" can page through it
+            browsing.set_search(q, engine="google")
             self._track_launched(before, timeout=1.5)
             return f"Searching the web for {q}."
         except Exception:

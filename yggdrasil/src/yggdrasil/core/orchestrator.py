@@ -341,6 +341,60 @@ _DEV_STATUS_RE = re.compile(
     r"|\bare\s+(?:the\s+)?agents?\b.{0,18}\b(?:working|building|busy|still going)\b", re.I)
 
 
+# Browser control -> the Browser agent. Deterministic (small planners fumble these). Scroll is
+# universal (any window); pagination and back/forward/reload target the browser.
+_SCROLL_RE = re.compile(
+    r"\bscroll\b|\bpage (?:up|down)\b|\b(?:go|jump|take me) to (?:the )?(?:top|bottom) "
+    r"of (?:the )?(?:page|screen|document|list)\b|\bgo to (?:the )?(?:top|bottom)\b", re.I)
+_PAGE_RE = re.compile(
+    r"\b(?:next|previous|prev|the last|the first) page\b|\bgo (?:to |back to )?page (?:number )?\d+\b"
+    r"|\b(?:go to |show )?page (?:number )?\d+\b", re.I)
+_BROWSER_NAV_RE = re.compile(
+    r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?"
+    r"(go back|back|go forward|forward|reload(?: the page| this page)?|refresh(?: the page| this page)?)"
+    r"\s*[.?!]*\s*$", re.I)
+
+
+def _scroll_direction(goal: str) -> str:
+    """Turn a scroll utterance into the Browser agent's scroll argument."""
+    g = goal.lower()
+    if "top" in g or "beginning" in g:
+        return "top"
+    if "bottom" in g or "end of" in g:
+        return "bottom"
+    base = "up" if re.search(r"\b(up|back up)\b", g) else "down"
+    m = re.search(r"(\d+)\s*(?:lines?|times?|clicks?)", g)
+    if m:
+        return f"{base} {m.group(1)} lines"
+    if any(w in g for w in ("little", "bit", "few")):
+        return f"{base} a little"
+    return base
+
+
+def _page_target(goal: str) -> str:
+    g = goal.lower()
+    if "next" in g:
+        return "next"
+    if "prev" in g or "previous" in g or "last page" in g or "go back" in g:
+        return "previous"
+    if "first page" in g:
+        return "first"
+    m = re.search(r"page (?:number )?(\d+)", g)
+    return m.group(1) if m else "next"
+
+
+def _browser_nav_route(goal: str):
+    m = _BROWSER_NAV_RE.match(goal.strip())
+    if not m:
+        return None
+    w = m.group(1).lower()
+    if w.startswith("go forward") or w == "forward":
+        return "forward"
+    if w.startswith("reload") or w.startswith("refresh"):
+        return "reload"
+    return "back"
+
+
 def _dev_route(goal: str):
     g = goal.strip()
     if _DEV_CANCEL_RE.match(g):
@@ -698,6 +752,22 @@ class Orchestrator:
             verb, arg = mkt
             self._publish("Marketplace…")
             task = Task(action=f"market.{verb}", agent="market", params={"argument": arg})
+            return self._render(task, await self._dispatch(task))
+        # Browser control — checked before the planner (unambiguous, common phrases).
+        if _PAGE_RE.search(goal):  # "next page" / "go to page 4" of search results
+            self._publish("Turning the page…")
+            task = Task(action="browser.page", agent="browser",
+                        params={"argument": _page_target(goal)})
+            return self._render(task, await self._dispatch(task))
+        if _SCROLL_RE.search(goal):  # "scroll down a page" / "scroll to the bottom" / "page down"
+            self._publish("Scrolling…")
+            task = Task(action="browser.scroll", agent="browser",
+                        params={"argument": _scroll_direction(goal)})
+            return self._render(task, await self._dispatch(task))
+        bnav = _browser_nav_route(goal)  # "go back" / "go forward" / "reload the page"
+        if bnav:
+            self._publish("")
+            task = Task(action=f"browser.{bnav}", agent="browser", params={})
             return self._render(task, await self._dispatch(task))
         if _TERMINAL_OPEN_RE.match(goal):  # "open a terminal window" -> launch it, no auth needed
             self._publish("Opening…")

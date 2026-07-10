@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from .agents.app_agent import AppsAgent
+from .agents.browser_agent import BrowserAgent
 from .agents.command_agent import CommandAgent
 from .agents.dev_agent import DevAgent
 from .agents.document_agent import DocumentsAgent
@@ -66,6 +67,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(AppsAgent(bus, perms, models.get("writer") if models else None, sandbox))
     registry.register(SecurityAgent(bus, perms, llm))
     registry.register(CommandAgent(bus, perms))
+    registry.register(BrowserAgent(bus, perms))
     registry.register(TaskAgent(bus, perms, models.get("coder") if models else None, sandbox))
     registry.register(FocusAgent(bus, perms))
     registry.register(DocumentsAgent(bus, perms))
