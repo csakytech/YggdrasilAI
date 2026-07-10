@@ -392,6 +392,13 @@ def _page_target(goal: str) -> str:
 
 
 # Deep page reading (Marionette). "read me the links" / "open the Wikipedia one" / "read the page".
+# Show/hide visible numbered badges — for sighted, hands-free users who can SEE but not click.
+_SHOWNUM_RE = re.compile(
+    r"\bnumber the links?\b|\blabel the links?\b"
+    r"|\b(?:show|display|put|add|highlight)\b.{0,24}\b(?:numbers?|labels?)\b"
+    r"|\bshow (?:me )?(?:the )?link numbers?\b", re.I)
+_HIDENUM_RE = re.compile(
+    r"\b(?:hide|remove|clear|turn off|get rid of)\b.{0,18}\b(?:numbers?|labels?|badges?)\b", re.I)
 _READLINKS_RE = re.compile(
     r"\b(?:read|list|show|give me|tell me|what are)\b.{0,22}\blinks?\b"
     r"|\bwhat links?\b|\bwhat can i (?:click|open)\b", re.I)
@@ -794,6 +801,14 @@ class Orchestrator:
             return self._render(task, await self._dispatch(task))
         # Deep page reading — voice-browse the actual content (checked before app-launch routes
         # so "open the Wikipedia one" opens a listed link, not an app).
+        if _HIDENUM_RE.search(goal):
+            self._publish("")
+            task = Task(action="browser.hide_numbers", agent="browser", params={})
+            return self._render(task, await self._dispatch(task))
+        if _SHOWNUM_RE.search(goal):  # checked before read_links ("show link numbers" vs "read links")
+            self._publish("Numbering the links…")
+            task = Task(action="browser.show_numbers", agent="browser", params={})
+            return self._render(task, await self._dispatch(task))
         if _READLINKS_RE.search(goal):
             self._publish("Reading the page…")
             task = Task(action="browser.read_links", agent="browser", params={})

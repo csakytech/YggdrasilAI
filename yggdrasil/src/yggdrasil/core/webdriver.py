@@ -113,13 +113,17 @@ def client() -> Marionette:
 
 # Meaningful, visible links (text 4–90 chars), de-duplicated, capped. Scoped to the MAIN
 # content area when the page has one, so search results / article links lead instead of the
-# site's nav chrome (Log in, Donate, Jump to content…); falls back to the whole page.
+# site's nav chrome. arguments[0] = draw numbered badges on the page (so a sighted, hands-free
+# user can SEE the numbers and say "open number 5" without hearing them all read out). The
+# element order MUST match get_links, so the badge numbers == the spoken numbers.
 _LINKS_JS = r"""
+const draw = arguments[0];
 const root = document.querySelector('#search, #rso, main, [role=main], #content, #mw-content-text, article') || document.body;
-const seen = new Set(); const out = [];
+document.querySelectorAll('.ygg-badge').forEach(e => e.remove());
+let seen = new Set(); let items = [];
 const collect = (scope) => {
   for (const a of scope.querySelectorAll('a')) {
-    if (out.length >= 40) return;
+    if (items.length >= 40) break;
     if (!a.offsetParent) continue;
     if (!a.href || a.href.startsWith('javascript')) continue;
     let t = (a.innerText || a.getAttribute('aria-label') || '').trim().replace(/\s+/g,' ');
@@ -127,13 +131,32 @@ const collect = (scope) => {
     const key = t.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({text: t, href: a.href});
+    items.push({el: a, text: t, href: a.href});
   }
 };
 collect(root);
-if (out.length < 5 && root !== document.body) collect(document.body);  // thin content -> widen
-return out;
+if (items.length < 5 && root !== document.body) { seen = new Set(); items = []; collect(document.body); }
+if (draw) {
+  const sx = window.scrollX, sy = window.scrollY;
+  items.forEach((it, i) => {
+    const r = it.el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return;
+    const b = document.createElement('div');
+    b.className = 'ygg-badge';
+    b.textContent = String(i + 1);
+    b.setAttribute('style',
+      'position:absolute!important;z-index:2147483647!important;background:#f0c040!important;'
+      + 'color:#000!important;font:bold 12px/1.3 sans-serif!important;padding:0 5px!important;'
+      + 'border-radius:8px!important;box-shadow:0 1px 3px rgba(0,0,0,.6)!important;'
+      + 'pointer-events:none!important;white-space:nowrap!important;'
+      + 'left:' + (r.left + sx - 2) + 'px;top:' + (r.top + sy - 9) + 'px;');
+    document.body.appendChild(b);
+  });
+}
+return items.map(o => ({text: o.text, href: o.href}));
 """
+
+_HIDE_BADGES_JS = "document.querySelectorAll('.ygg-badge').forEach(e => e.remove()); return true;"
 
 # Clickable BUTTONS (Show more, Load more, Next…) with visible text — for expanding overviews etc.
 _BUTTONS_JS = r"""
@@ -155,8 +178,17 @@ return t.slice(0, 6000);
 """
 
 
-def get_links() -> list[dict]:
-    return client().execute(_LINKS_JS) or []
+def get_links(badge: bool = False) -> list[dict]:
+    """Enumerate the page's meaningful links. If ``badge``, also paint matching numbered
+    badges onto the page (for sighted, hands-free users)."""
+    return client().execute(_LINKS_JS, [badge]) or []
+
+
+def hide_badges() -> None:
+    try:
+        client().execute(_HIDE_BADGES_JS)
+    except Exception:
+        pass
 
 
 def get_buttons() -> list[str]:

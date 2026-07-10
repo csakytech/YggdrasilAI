@@ -95,6 +95,8 @@ class BrowserAgent(BaseAgent):
         "page": Capability("page", False, "Go to another page of search results"),
         "find": Capability("find", False, "Find text on the current page"),
         "read_links": Capability("read_links", False, "Read out the links on the page, numbered"),
+        "show_numbers": Capability("show_numbers", False, "Show numbered badges on the page's links"),
+        "hide_numbers": Capability("hide_numbers", False, "Remove the numbered link badges"),
         "open_link": Capability("open_link", False, "Open a link by its number or description"),
         "read_page": Capability("read_page", False, "Read/summarize the page's content aloud"),
         "expand": Capability("expand", False, "Click a Show-more / expand button on the page"),
@@ -123,6 +125,11 @@ class BrowserAgent(BaseAgent):
             return self._find(arg)
         if verb == "read_links":
             return self._read_links()
+        if verb == "show_numbers":
+            return self._show_numbers()
+        if verb == "hide_numbers":
+            webdriver.hide_badges()
+            return {"speech": "Cleared the numbers."}
         if verb == "open_link":
             return await self._open_link(arg)
         if verb == "read_page":
@@ -142,7 +149,7 @@ class BrowserAgent(BaseAgent):
         if not webdriver.available():
             return self._no_reader()
         try:
-            self._links = webdriver.get_links()
+            self._links = webdriver.get_links(badge=True)  # read AND paint the numbers
         except Exception:
             return self._no_reader()
         if not self._links:
@@ -150,8 +157,21 @@ class BrowserAgent(BaseAgent):
         shown = self._links[:12]
         spoken = ". ".join(f"{i + 1}, {ln['text']}" for i, ln in enumerate(shown))
         more = f" There are {len(self._links) - len(shown)} more." if len(self._links) > len(shown) else ""
-        return {"speech": f"Here are the links. {spoken}.{more} Say “open number …”, or "
-                          "describe one, like “open the Wikipedia one”.",
+        return {"speech": f"Here are the links, and I've numbered them on screen. {spoken}.{more} "
+                          "Say “open number …”, or describe one, like “open the Wikipedia one”.",
+                "list": [f"{i + 1}. {ln['text']}" for i, ln in enumerate(self._links)]}
+
+    def _show_numbers(self):
+        if not webdriver.available():
+            return self._no_reader()
+        try:
+            self._links = webdriver.get_links(badge=True)
+        except Exception:
+            return self._no_reader()
+        if not self._links:
+            return {"speech": "I don't see any links to number on this page."}
+        return {"speech": f"I've numbered {len(self._links)} links on the page. Say “open number …”, "
+                          "or “hide the numbers” to clear them.",
                 "list": [f"{i + 1}. {ln['text']}" for i, ln in enumerate(self._links)]}
 
     async def _open_link(self, ref: str):
