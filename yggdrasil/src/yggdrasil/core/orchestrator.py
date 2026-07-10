@@ -391,6 +391,37 @@ def _page_target(goal: str) -> str:
     return "next"
 
 
+# Deep page reading (Marionette). "read me the links" / "open the Wikipedia one" / "read the page".
+_READLINKS_RE = re.compile(
+    r"\b(?:read|list|show|give me|tell me|what are)\b.{0,22}\blinks?\b"
+    r"|\bwhat links?\b|\bwhat can i (?:click|open)\b", re.I)
+_READPAGE_RE = re.compile(
+    r"\bread (?:me |it |this |out )*(?:the |this )?(?:page|article|website|site|it|this)\b"
+    r"|\bwhat does (?:this|the) (?:page|article|website|it) say\b"
+    r"|\b(?:summari[sz]e|read out) (?:the |this )?(?:page|article|website)\b"
+    r"|\bread (?:this|it) to me\b", re.I)
+_EXPAND_RE = re.compile(
+    r"\bshow more\b|\bshow me more\b|\bexpand (?:it|that|the .{0,20})?\b|\bload more\b"
+    r"|\b(?:read|see) (?:me )?the rest\b", re.I)
+_OPEN_VERB = r"(?:open|click|select|choose|take me to)"
+_OPENLINK_RE = re.compile(rf"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?{_OPEN_VERB}\s+(.+)$", re.I)
+_OPENLINK_CUE = re.compile(
+    r"\bnumber\s+\w+|\blink\s+\w+|\bresult\s+\w+"
+    r"|\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last)\b"
+    r"|\b\d+(?:st|nd|rd|th)?\b|\bthe\s+.+?\s+(?:one|link|result|video|article)\b", re.I)
+
+
+def _openlink_route(goal: str):
+    """A reference to open a listed link ('number 3', 'the Wikipedia one'), or None."""
+    m = _OPENLINK_RE.match(goal.strip())
+    if not m:
+        return None
+    ref = m.group(1).strip(" .?!")
+    if _OPENLINK_CUE.search(ref) or re.fullmatch(r"(?:number\s+)?\d+", ref, re.I):
+        return ref
+    return None
+
+
 def _browser_nav_route(goal: str):
     m = _BROWSER_NAV_RE.match(goal.strip())
     if not m:
@@ -760,6 +791,25 @@ class Orchestrator:
             verb, arg = mkt
             self._publish("Marketplace…")
             task = Task(action=f"market.{verb}", agent="market", params={"argument": arg})
+            return self._render(task, await self._dispatch(task))
+        # Deep page reading — voice-browse the actual content (checked before app-launch routes
+        # so "open the Wikipedia one" opens a listed link, not an app).
+        if _READLINKS_RE.search(goal):
+            self._publish("Reading the page…")
+            task = Task(action="browser.read_links", agent="browser", params={})
+            return self._render(task, await self._dispatch(task))
+        olink = _openlink_route(goal)
+        if olink:
+            self._publish("Opening the link…")
+            task = Task(action="browser.open_link", agent="browser", params={"argument": olink})
+            return self._render(task, await self._dispatch(task))
+        if _READPAGE_RE.search(goal):
+            self._publish("Reading the page…")
+            task = Task(action="browser.read_page", agent="browser", params={})
+            return self._render(task, await self._dispatch(task))
+        if _EXPAND_RE.search(goal):
+            self._publish("")
+            task = Task(action="browser.expand", agent="browser", params={"argument": goal})
             return self._render(task, await self._dispatch(task))
         # Browser control — checked before the planner (unambiguous, common phrases).
         if _PAGE_RE.search(goal):  # "next page" / "go to page 4" of search results

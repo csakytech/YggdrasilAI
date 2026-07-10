@@ -29,7 +29,8 @@ _THINK = re.compile(r"<think>.*?</think>", re.S)
 _ALIASES = {
     "word editor": "libreoffice --writer", "word processor": "libreoffice --writer",
     "writer": "libreoffice --writer", "text editor": "gnome-text-editor",
-    "editor": "gnome-text-editor", "browser": "firefox", "web browser": "firefox",
+    "editor": "gnome-text-editor", "browser": "firefox --marionette",
+    "web browser": "firefox --marionette", "firefox": "firefox --marionette",
     "files": "nautilus", "file manager": "nautilus", "terminal": "gnome-terminal",
     "calculator": "gnome-calculator",
     "dashboard": "yggdrasil-dashboard", "yggdrasil dashboard": "yggdrasil-dashboard",
@@ -273,6 +274,16 @@ class AppsAgent(BaseAgent):
             return f"Closed {key}."
         return f"{key} doesn't seem to be running."
 
+    @staticmethod
+    def _open_in_firefox(url: str) -> None:
+        """Open a URL in Firefox WITH Marionette enabled, so the Browser agent can read/drive the
+        page (list links, open one, read aloud). Marionette must be on from the FIRST launch, so we
+        launch Firefox directly with --marionette rather than xdg-open. If Firefox is already up
+        (with Marionette), this just opens a new tab."""
+        ff = shutil.which("firefox") or shutil.which("firefox-esr") or "firefox"
+        subprocess.Popen([ff, "--marionette", url],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     def _browse(self, target: str) -> str:
         if not self._has_display():
             return "I can only browse when you're signed in at the desktop."
@@ -286,7 +297,7 @@ class AppsAgent(BaseAgent):
                 return self._search(target)  # not a URL -> treat as a search
         try:
             before = self._window_ids()
-            subprocess.Popen(["xdg-open", t], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._open_in_firefox(t)
             self.last_app = "firefox"
             self._track_launched(before, timeout=1.5)
             return f"Opening {t}."
@@ -302,7 +313,7 @@ class AppsAgent(BaseAgent):
         url = "https://www.google.com/search?q=" + urllib.parse.quote(q)
         try:
             before = self._window_ids()
-            subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._open_in_firefox(url)
             self.last_app = "firefox"
             from ..core import browsing  # remember the search so "next page" can page through it
             browsing.set_search(q, engine="google")

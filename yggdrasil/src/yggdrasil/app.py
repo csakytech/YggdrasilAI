@@ -67,7 +67,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(AppsAgent(bus, perms, models.get("writer") if models else None, sandbox))
     registry.register(SecurityAgent(bus, perms, llm))
     registry.register(CommandAgent(bus, perms))
-    registry.register(BrowserAgent(bus, perms))
+    registry.register(BrowserAgent(bus, perms, models.get("reasoner") if models else None))
     registry.register(TaskAgent(bus, perms, models.get("coder") if models else None, sandbox))
     registry.register(FocusAgent(bus, perms))
     registry.register(DocumentsAgent(bus, perms))
