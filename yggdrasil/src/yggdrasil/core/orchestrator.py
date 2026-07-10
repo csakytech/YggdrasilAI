@@ -13,7 +13,7 @@ import sys
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable
 
-from . import config, mission, trace
+from . import config, journal, mission, trace
 from . import models as models_mod
 from .bus import Bus, Result, Status, Task
 from .focus import active_window
@@ -514,6 +514,48 @@ _VERB_LABEL = {
 }
 
 
+# Verbs worth remembering in the activity journal (past-tense templates). Trivial reads
+# (time/disk/status/list/recall) are deliberately omitted — the diary is about WORK done.
+_JOURNAL_TMPL = {
+    "create_folder": "Created the folder {a}",
+    "create_file": "Created the file {a}",
+    "write_file": "Saved {a}",
+    "append_file": "Updated {a}",
+    "delete": "Deleted {a}",
+    "rename": "Renamed {a}",
+    "move": "Moved {a}",
+    "copy": "Copied {a}",
+    "write_document": "Wrote a document about {a}",
+    "lookup": "Looked up {a}",
+}
+
+
+# "What was I working on yesterday?" -> the activity recap (memory.recap). Requires a
+# self/past-activity shape so it can't grab "what's the weather" or "what did YOU do".
+_RECAP_RE = re.compile(
+    r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?"
+    r"(?:what (?:was|were|have|did) (?:i|we)\b.{0,40}?\b(?:work|doing|do|been|up to|get done|accomplish|make|build)"
+    r"|remind me what (?:i|we)\b.{0,30}?\b(?:did|worked|was|were|made|built)"
+    r"|(?:give me |show me )?(?:a |my )?(?:recap|summary)\b.{0,24}?\b(?:day|activity|work|did|yesterday|week)"
+    r"|what'?s? (?:my|the) (?:activity|work history|recap)"
+    r"|catch me up (?:on )?(?:my )?(?:day|work|activity))"
+    r".*$", re.I)
+
+
+def _journal_task(task: Task, result: Result) -> None:
+    """Record a completed action in the activity diary, if it's work worth remembering."""
+    if result.status is not Status.OK:
+        return
+    tmpl = _JOURNAL_TMPL.get(task.action.split(".")[-1])
+    if not tmpl:
+        return
+    a = (task.params.get("argument") or task.params.get("path")
+         or task.params.get("text") or "").strip()
+    if not a:
+        return
+    journal.record(task.action.split(".", 1)[0], tmpl.format(a=a[:80]))
+
+
 def _activity_label(task: Task) -> str:
     """A short human label for the HUD, e.g. 'Running top -d' / 'Creating reports'."""
     verb = task.action.split(".")[-1]
@@ -723,6 +765,10 @@ class Orchestrator:
             if isinstance(result.data, dict) and result.data.get("await_reply"):
                 self._pending_reply = result.data.get("agent")
             return self._render(task, result)
+        if _RECAP_RE.match(goal.strip()):  # "what was I working on yesterday?" -> activity recap
+            self._publish("Recalling…")
+            task = Task(action="memory.recap", agent="memory", params={"argument": goal})
+            return self._render(task, await self._dispatch(task))
         if _SCHEDULE_RE.match(goal.strip()):  # "remind me…" / "schedule…" / "every weekday at 9…"
             self._publish("Scheduling…")
             task = Task(action="schedule.add", agent="schedule", params={"argument": goal})
@@ -884,6 +930,7 @@ class Orchestrator:
 
     @staticmethod
     def _render(task: Task, result: Result) -> str:
+        _journal_task(task, result)  # remember work done — every routed + planned task flows here
         verb = task.action.split(".")[-1]
         data = result.data if isinstance(result.data, dict) else {}
         name = data.get("name") or task.params.get("path") or "it"

@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 from shlex import quote as shlex_quote
 
-from ..core import mission
+from ..core import journal, mission
 from ..core.permissions import Capability
 from .base import BaseAgent
 
@@ -169,6 +169,7 @@ class DevAgent(BaseAgent):
         except Exception:
             m["summary"] = goal[:60]
         mission.log(m, f"Goal captured: {m['summary']}")
+        journal.record("dev", f"Started a project in Development Mode: {m['summary']}")
         _open_window()
         mission.ask(m, _MODE_Q)
         return {"speech": f"Entering Development Mode — {m['summary']}. I'll ask questions "
@@ -648,6 +649,9 @@ class DevAgent(BaseAgent):
                 pass
         mission.log(m, f"BUILD COMPLETE — say “run the project” to start it"
                        f"{f' ({run_cmd})' if run_cmd else ''}.")
+        journal.record("dev", f"Built {m.get('name', 'a project')} — a "
+                              f"{plan.get('language', 'software')} project",
+                       detail={"dir": str(pdir)})
         _notify(f"ThorOS — {m.get('name', 'project')} is built",
                 "Say “run the project” to try it, or open it in your editor.")
 
