@@ -111,20 +111,27 @@ def client() -> Marionette:
 
 # --- page-reading helpers (JavaScript run in the live page) ---------------------------------
 
-# Meaningful, visible links (text 4–90 chars), de-duplicated, in document order, capped.
+# Meaningful, visible links (text 4–90 chars), de-duplicated, capped. Scoped to the MAIN
+# content area when the page has one, so search results / article links lead instead of the
+# site's nav chrome (Log in, Donate, Jump to content…); falls back to the whole page.
 _LINKS_JS = r"""
+const root = document.querySelector('#search, #rso, main, [role=main], #content, #mw-content-text, article') || document.body;
 const seen = new Set(); const out = [];
-for (const a of document.querySelectorAll('a')) {
-  if (!a.offsetParent) continue;                    // not visible
-  if (!a.href || a.href.startsWith('javascript')) continue;
-  let t = (a.innerText || a.getAttribute('aria-label') || '').trim().replace(/\s+/g,' ');
-  if (t.length < 4 || t.length > 90) continue;
-  const key = t.toLowerCase();
-  if (seen.has(key)) continue;
-  seen.add(key);
-  out.push({text: t, href: a.href});
-  if (out.length >= 40) break;
-}
+const collect = (scope) => {
+  for (const a of scope.querySelectorAll('a')) {
+    if (out.length >= 40) return;
+    if (!a.offsetParent) continue;
+    if (!a.href || a.href.startsWith('javascript')) continue;
+    let t = (a.innerText || a.getAttribute('aria-label') || '').trim().replace(/\s+/g,' ');
+    if (t.length < 4 || t.length > 90) continue;
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({text: t, href: a.href});
+  }
+};
+collect(root);
+if (out.length < 5 && root !== document.body) collect(document.body);  // thin content -> widen
 return out;
 """
 
