@@ -1,8 +1,9 @@
 """Yggdrasil OS — AI-first, local-first agent runtime.
 
-Phase 0/1 spine: orchestrator + permissioned agents + (stubbed) voice loop.
+The orchestrator + permissioned agents + voice loop that make ThorOS: talk to your computer
+in plain language and it gets real work done, entirely on your own machine.
 See ../../docs/ARCHITECTURE.md for the design.
 """
 
-__version__ = "0.9.15"
+__version__ = "1.0.0"
 __codename__ = "Thor"  # release codename (Norse gods)

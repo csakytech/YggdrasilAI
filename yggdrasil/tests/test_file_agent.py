@@ -37,33 +37,35 @@ def test_create_folder_is_safe(tmp_path: Path) -> None:
     asyncio.run(run())
 
 
-def test_delete_requires_authorization(tmp_path: Path) -> None:
+def test_delete_requires_confirmation(tmp_path: Path) -> None:
+    """Destructive ops never fire on the first request — they park behind a spoken yes/no
+    confirmation (showing the RESOLVED name, since a fuzzy match can be wrong), and only run
+    after an explicit 'confirm'. Saying 'no' (cancel) leaves everything untouched."""
     async def run() -> None:
         bus = LocalBus()
-        channel = CapturingChannel()
-        perms = PermissionManager(DefaultPolicy(), channel)
+        perms = PermissionManager(DefaultPolicy(), CapturingChannel())
         agent = FileAgent(bus, perms, sandbox_root=tmp_path)
         await agent.start()
         (tmp_path / "old").mkdir()
 
-        # First attempt: parked awaiting authorization, NOT executed.
+        # First attempt: parked awaiting a yes/no confirmation, NOT executed.
         parked = await bus.request("file", Task(action="file.delete", agent="file",
                                                 params={"path": "old"}))
-        assert parked.status is Status.AWAITING_AUTH
-        assert (tmp_path / "old").is_dir()  # still there
-        assert channel.last is not None
+        assert parked.status is Status.OK
+        assert parked.data.get("await_confirm") is True
+        assert parked.data.get("agent") == "file"          # the next yes/no routes back here
+        assert "old" in parked.data.get("speech", "")       # confirms the resolved name aloud
+        assert (tmp_path / "old").is_dir()                  # still there
 
-        # Wrong code is rejected.
-        assert perms.verify(channel.last.challenge_id, "000000") is None
+        # Saying "no" (cancel) leaves it untouched.
+        await bus.request("file", Task(action="file.cancel", agent="file", params={}))
+        assert (tmp_path / "old").is_dir()
 
-        # Re-challenge and approve with the real code.
-        parked2 = await bus.request("file", Task(action="file.delete", agent="file",
-                                                 params={"path": "old"}))
-        token = perms.verify(channel.last.challenge_id, channel.last.code)
-        assert token is not None
-
-        done = await bus.request("file", Task(action="file.delete", agent="file",
-                                              params={"path": "old"}, auth_token=token))
+        # Ask again, then confirm ("yes") — only now is it deleted.
+        again = await bus.request("file", Task(action="file.delete", agent="file",
+                                               params={"path": "old"}))
+        assert again.data.get("await_confirm") is True
+        done = await bus.request("file", Task(action="file.confirm", agent="file", params={}))
         assert done.status is Status.OK
         assert not (tmp_path / "old").exists()
 
