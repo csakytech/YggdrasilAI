@@ -29,6 +29,14 @@ if [ -n "$FIRST_USER" ] && ! grep -q '^AutomaticLoginEnable' /etc/gdm3/daemon.co
     log "GDM autologin enabled for ${FIRST_USER}"
 fi
 
+# --- The Debian installer only puts the first user in the sudo group when NO root password was
+#     set during install; set one and you get a user who can't administer their own machine —
+#     and, worse, can't run the self-updater (its sudoers rule is %sudo-only). Repair it here. ---
+if [ -n "$FIRST_USER" ] && ! id -nG "$FIRST_USER" 2>/dev/null | grep -qw sudo; then
+    usermod -aG sudo "$FIRST_USER" \
+        && log "added ${FIRST_USER} to the sudo group (installer skips this when a root password is set)"
+fi
+
 # --- detect GPU vendor (works with just the open drivers — no proprietary driver needed) ---
 GPU=$(lspci -nn 2>/dev/null | grep -iE 'vga|3d controller|display controller' | head -1)
 case "$GPU" in
@@ -54,12 +62,34 @@ sed -i '/cdrom:/d' /etc/apt/sources.list 2>/dev/null || true
 apt-get update -y >/dev/null 2>&1 || true
 
 # --- NVIDIA only: install the proprietary driver for CUDA/Ollama (nouveau already drives display).
-#     This is where the DKMS compile happens — on this machine, for this kernel, only if NVIDIA. ---
-if [ "$VENDOR" = nvidia ] && ! command -v nvidia-smi >/dev/null 2>&1; then
-    log "NVIDIA GPU found — installing the proprietary driver (GPU active after the next reboot)…"
-    setup_status "Installing graphics driver (one-time)…"
-    apt-get update -y >/dev/null 2>&1 && apt-get install -y nvidia-driver >/dev/null 2>&1 \
-        || log "WARN: nvidia-driver install failed (no network?) — continuing on CPU"
+#     This is where the DKMS compile happens — on this machine, for this kernel, only if NVIDIA.
+#     The new module cannot evict nouveau in a running session, so the driver only becomes active
+#     after a reboot — and we must reboot BEFORE the model tier is chosen, because under nouveau
+#     nvidia-smi reports no VRAM and a 12GB card would get locked to the CPU-fallback model with
+#     the stamp already written. So: install, then one guarded automatic reboot; setup resumes on
+#     the next boot (the stamp isn't written yet) with the driver live and picks the right tier.
+#     The once-only flag prevents a reboot loop when the module can never load (e.g. Secure Boot
+#     rejecting the unsigned DKMS build) — in that case we log and continue on CPU. ---
+nvidia_works() { nvidia-smi --query-gpu=memory.total --format=csv,noheader >/dev/null 2>&1; }
+if [ "$VENDOR" = nvidia ] && ! nvidia_works; then
+    REBOOT_FLAG=/var/lib/yggdrasil/.nvidia-reboot-tried
+    if ! dpkg -s nvidia-driver >/dev/null 2>&1; then
+        log "NVIDIA GPU found — installing the proprietary driver…"
+        setup_status "Installing graphics driver (one-time)…"
+        apt-get update -y >/dev/null 2>&1 && apt-get install -y nvidia-driver >/dev/null 2>&1 \
+            || log "WARN: nvidia-driver install failed (no network?) — continuing on CPU"
+    fi
+    if dpkg -s nvidia-driver >/dev/null 2>&1 && ! nvidia_works; then
+        if [ ! -f "$REBOOT_FLAG" ]; then
+            touch "$REBOOT_FLAG"
+            log "driver installed — restarting once to activate it (setup resumes automatically)"
+            setup_status "Graphics driver installed — restarting once to activate it…"
+            sleep 10
+            systemctl reboot
+            exit 0
+        fi
+        log "WARN: driver installed but still not active after the activation reboot (Secure Boot?) — continuing on CPU"
+    fi
 fi
 
 # --- choose a model by VRAM (mirror of MODEL_TIERS) ---
