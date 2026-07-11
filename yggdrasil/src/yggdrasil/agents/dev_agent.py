@@ -37,6 +37,13 @@ _MODE_Q = ("First, the big one — how would you like to work? You can code it y
            "me assisting, we can code it together — you and the Agents — or the Agents can "
            "build it for you while you direct.")
 _NAME_Q = "What should we call the project?"
+_DESC_Q = "In a sentence or two, what would you like to build?"
+# Ends the free-form description step. Kept short/explicit so it can't swallow real description
+# text — a longer utterance is always treated as more description.
+_DESC_DONE = re.compile(
+    r"^\s*(?:that'?s (?:it|all|everything|the lot|enough)|go ahead|i'?m done|done|nothing "
+    r"else|that'?s enough|start(?: the| your)?(?: questions?)?|your questions|ask away|"
+    r"ready|let'?s go|proceed|no that'?s (?:it|all))\s*[.!]*$", re.I)
 
 # Fast path for the common ways people answer the coding-mode question. Deliberately loose —
 # anything these miss falls to an LLM classifier (_classify_mode), so phrasing/STT slips still
@@ -150,31 +157,65 @@ class DevAgent(BaseAgent):
     async def _enter(self, goal: str):
         if self.llm is None:
             return {"speech": "Development Mode needs the language model, which isn't running."}
-        if not goal:
-            return {"speech": "Tell me what you'd like to build."}
-        old = mission.load()
-        if old.get("active") and old.get("stage") in ("interview", "proposal"):
-            _open_window()
-            q = old.get("pending") or "shall I set it up?"
-            return {"speech": f"We already have a mission going — {old.get('summary') or old.get('goal')}. "
-                              f"Current question: {q} (Or say “cancel development” to start over.)",
+        # Always start FRESH. An explicit entry REPLACES any stale/abandoned mission (the old
+        # plan stays in the window) — never refuse with "we already have a mission going", which
+        # is the trap that leaves you stuck on an old project. Strip a bare trigger phrase so
+        # "enter development mode" isn't mistaken for the description.
+        goal = (goal or "").strip()
+        desc = re.sub(r"^.*?\b(?:development|dev) mode\b[\s.,:;-]*", "", goal, flags=re.I).strip()
+        if desc.lower() in ("", "please", "now"):
+            desc = "" if re.search(r"\b(?:development|dev) mode\b", goal, re.I) else goal
+        # A generic trigger with no actual project ("let's build something", "I want to build a
+        # project") carries no description — go straight to the open invitation instead of
+        # echoing the trigger back.
+        if re.fullmatch(
+                r"(?:hey\s+\w+[,\s]+)?(?:can you |could you |please |let'?s |okay,?\s*|ok,?\s*)*"
+                r"(?:i(?:'d| would)? (?:like|want) to |i wanna |can we |we should |i'?m going to )*"
+                r"(?:build|make|create|develop|write|code|start(?: on| building)?)(?: me)?"
+                r"(?:\s+(?:something|a project|an? (?:app|program|application|tool|thing)|some software))?[.!\s]*",
+                desc, re.I):
+            desc = ""
+        m = mission.start("")
+        m["stage"] = "describe"
+        m["description"] = desc
+        m["pending"] = _DESC_Q
+        self._mode_misses = 0
+        _open_window()
+        if desc:
+            mission.save(m)
+            mission.log(m, f"New project — initial description: {desc[:80]}")
+            return {"speech": f"Development Mode. So far I've got: {desc}. Tell me anything else "
+                              "about it — take your time — then say “that's it” or “go ahead” "
+                              "and I'll ask my questions.",
                     "await_reply": True, "agent": self.domain}
-        m = mission.start(goal)
+        mission.save(m)
+        mission.log(m, "Development Mode entered — awaiting the project description.")
+        return {"speech": "Development Mode entered. Tell me what you'd like to build — describe "
+                          "it however you like, take your time, and it can be as long as you "
+                          "need. Say “that's it” or “go ahead” when you're done and I'll ask "
+                          "specific questions.",
+                "await_reply": True, "agent": self.domain}
+
+    async def _finish_describe(self, m: dict):
+        desc = (m.get("description") or "").strip()
+        if not desc:
+            mission.ask(m, _DESC_Q)
+            return {"speech": "I haven't caught a description yet — in a sentence or two, what "
+                              "would you like to build?", "await_reply": True, "agent": self.domain}
         try:
             r = await self.llm.generate(
-                system="Summarize what the user wants to BUILD in at most 8 plain words, "
-                       "like 'a small game for Android'. JSON only.",
-                prompt=goal, schema=_SUM_SCHEMA)
-            m["summary"] = (r.parsed or {}).get("summary", "").strip() or goal[:60]
+                system="Summarize what the user wants to BUILD in at most 10 plain words. JSON only.",
+                prompt=desc, schema=_SUM_SCHEMA)
+            m["summary"] = (r.parsed or {}).get("summary", "").strip() or desc[:70]
         except Exception:
-            m["summary"] = goal[:60]
-        mission.log(m, f"Goal captured: {m['summary']}")
+            m["summary"] = desc[:70]
+        m["goal"] = desc
+        m["stage"] = "interview"
+        mission.save(m)
+        mission.log(m, f"Description captured: {m['summary']}")
         journal.record("dev", f"Started a project in Development Mode: {m['summary']}")
-        _open_window()
         mission.ask(m, _MODE_Q)
-        return {"speech": f"Entering Development Mode — {m['summary']}. I'll ask questions "
-                          f"until I fully understand what you want; answer “you choose” to "
-                          f"any of them, or “just decide the rest” anytime. {_MODE_Q}",
+        return {"speech": f"Got it — {m['summary']}. Now the first question: {_MODE_Q}",
                 "await_reply": True, "agent": self.domain}
 
     async def _answer(self, text: str):
@@ -182,6 +223,22 @@ class DevAgent(BaseAgent):
         if not m.get("active"):
             return {"speech": "There's no development mission running. Tell me what you'd "
                               "like to build and we'll start one."}
+        if m.get("stage") == "describe":
+            # Gather the free-form description — as long as the user needs, added to across
+            # turns so a description that got cut off can simply be continued. A short "go
+            # ahead"/"that's it" ends it; anything else is more description.
+            t = text.strip()
+            done = bool(_DESC_DONE.match(t)) or (
+                len(t.split()) <= 5 and re.search(
+                    r"\b(?:go ahead|that'?s (?:it|all|everything|enough)|i'?m done|done|"
+                    r"nothing else|ready|your questions|ask away|next|proceed|no)\b", t, re.I))
+            if done:
+                return await self._finish_describe(m)
+            m["description"] = (f"{m.get('description', '')} {t}").strip()
+            mission.save(m)
+            mission.log(m, f"Description +: {t[:60]}")
+            return {"speech": "Got it. Anything else about it? Or say “go ahead” and I'll "
+                              "start my questions.", "await_reply": True, "agent": self.domain}
         if _DECIDE_REST.search(text):
             mission.log(m, "User delegated the remaining decisions.")
             return await self._propose(m)

@@ -319,6 +319,17 @@ _DEV_ENTER_RE = re.compile(
     r"(?:i(?:'d| would)? (?:like|want) to|help me|let'?s|i'?m going to|i wanna|can we|we should)?\s*"
     r"(?:build|create|make|develop|code|start building|write)\s+(?:me\s+)?"
     r"(?:a|an|my|some)\s+(?:\w+[ -]){0,3}" + _DEV_NOUN + r"\b", re.I)
+# Bare entry with no project yet — "Jarvis, enter development mode" / "let's build something".
+# This is the door Michael asked for: it opens Dev Mode, then invites a full free-form
+# description before any questions, so a long spoken description never gets cut off up front.
+_DEV_MODE_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?[a-z]+,\s+)?(?:can you |could you |please |let'?s |okay,? |ok,? )?"
+    r"(?:(?:i(?:'d| would)? (?:like|want) to|i wanna|i'?m going to|help me|we should|can we)\s+)?"
+    r"(?:enter|start|go(?: in)?to|open|begin|activate|launch)?\s*"
+    r"(?:development|dev)\s*mode\b"
+    r"|^\s*(?:(?:hey\s+)?[a-z]+,\s+)?(?:let'?s|i(?:'d| would)? (?:like|want) to|i wanna|can we)\s+"
+    r"(?:build|make|create|develop|write|code|start(?: on)?)\s+(?:me\s+)?(?:something|a project)\b",
+    re.I)
 _DEV_CANCEL_RE = re.compile(
     r"^\s*(?:cancel|stop|abort|quit|end)(?: the| this)? ?(?:development|dev ?mode|mission|project)\b", re.I)
 _DEV_WIN_RE = re.compile(
@@ -458,8 +469,8 @@ def _dev_route(goal: str):
         return ("run", "")
     if _DEV_STATUS_RE.search(g):
         return ("status", "")
-    if _DEV_ENTER_RE.search(g):
-        return ("enter", g)
+    if _DEV_MODE_RE.search(g) or _DEV_ENTER_RE.search(g):
+        return ("enter", g)  # _enter strips any trigger phrase and keeps the rest as the description
     return None
 
 
@@ -776,7 +787,7 @@ class Orchestrator:
         # mission if nothing else matched (so "Jarvis, set it up" still answers, but "Jarvis, open a
         # file window" switches away — the mission stays alive, resumable by name).
         in_dev = self._pending_reply is not None or (
-            mission.active() and mission.load().get("stage") in ("interview", "proposal"))
+            mission.active() and mission.load().get("stage") in ("describe", "interview", "proposal"))
         if in_dev and not addressed:
             return await self._answer_dev(goal)
         if _EXPLAIN_RE.match(goal.strip()):  # "why did you…" -> explain my last action, reliably

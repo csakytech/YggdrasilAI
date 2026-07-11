@@ -16,7 +16,7 @@ import os
 import time
 from pathlib import Path
 
-STAGES = ("interview", "proposal", "setup", "build", "done")
+STAGES = ("describe", "interview", "proposal", "setup", "build", "done")
 
 
 def _path() -> Path:
