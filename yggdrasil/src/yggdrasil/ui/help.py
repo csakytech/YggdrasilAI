@@ -61,7 +61,7 @@ class HelpWindow(Gtk.ApplicationWindow):
         self.vital_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         outer.append(self.vital_box)
 
-        sep = Gtk.Label(label="You can say:", xalign=0)
+        sep = Gtk.Label(label="You can say — or say the number to run it:", xalign=0)
         sep.add_css_class("ygg-where")
         sep.set_margin_top(6)
         outer.append(sep)
@@ -70,7 +70,7 @@ class HelpWindow(Gtk.ApplicationWindow):
         outer.append(self.cmd_box)
 
         foot = Gtk.Label(
-            label="Say “hide help” to close this — or just say any command above.",
+            label="Say the command, or “do number 3”. Say “hide help” to close this.",
             xalign=0, wrap=True)
         foot.add_css_class("ygg-foot")
         foot.set_margin_top(8)
@@ -115,15 +115,18 @@ class HelpWindow(Gtk.ApplicationWindow):
         if not cmds:
             self.cmd_box.append(Gtk.Label(label="Say “help” any time.", xalign=0))
             return True
-        for pair in cmds:
-            try:
-                say, does = pair[0], pair[1]
-            except Exception:
-                continue
+        for i, cmd in enumerate(cmds, 1):
+            if isinstance(cmd, dict):
+                say, does = cmd.get("say", ""), cmd.get("does", "")
+            else:  # tolerate the old (say, does) tuple form
+                try:
+                    say, does = cmd[0], cmd[1]
+                except Exception:
+                    continue
             frame = Gtk.Frame()
             row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
             row.add_css_class("ygg-row")
-            s = Gtk.Label(label="🗣  " + say, xalign=0, wrap=True, selectable=True)
+            s = Gtk.Label(label=f"{i}.  🗣  {say}", xalign=0, wrap=True, selectable=True)
             s.add_css_class("ygg-say")
             row.append(s)
             d2 = Gtk.Label(label=does, xalign=0, wrap=True)

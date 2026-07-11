@@ -86,12 +86,13 @@ class HelpAgent(BaseAgent):
 
     async def _execute(self, verb: str, params: dict[str, Any]) -> Any:
         if verb == "hide":
-            return {"speech": _close_window()}
+            return {"speech": _close_window(), "help_commands": []}
         snap = context.snapshot()
         _write_state(snap)
         shown = _open_window()
         speech = context.spoken(snap)
         if not shown:
             # No desktop (headless / SSH) — the spoken version is the whole help.
-            speech = speech.replace("I've put the full list in the help window. ", "")
-        return {"speech": speech}
+            speech = speech.replace("The help window has the rest. ", "")
+        # Hand the numbered commands back so the orchestrator can run "do number 3".
+        return {"speech": speech, "help_commands": snap.get("commands", [])}

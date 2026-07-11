@@ -339,6 +339,45 @@ _HELP_HIDE_RE = re.compile(
     r"^\s*(?:hey\s+\w+[,\s]+)?(?:jarvis[,\s]+)?(?:close|hide|dismiss|get rid of)\s+"
     r"(?:the\s+|this\s+)?help(?:\s+(?:window|card))?\s*[?.!]*\s*$", re.I)
 
+# Picking a command off the help card by number: "do number 3", "number three", "the second
+# option", "run the first one". Only consulted while a help card is live (self._help_commands),
+# and a token that isn't a number (e.g. "select 4", "run the project") yields None and falls
+# through to normal routing — so real commands are never swallowed.
+_HELP_NUMWORD = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+                 "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
+_HELP_ORDWORD = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6,
+                 "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10, "eleventh": 11,
+                 "twelfth": 12, "last": -1}
+
+
+def _token_to_index(tok: str):
+    tok = tok.strip().lower()
+    if tok in _HELP_ORDWORD:
+        return _HELP_ORDWORD[tok]
+    if tok in _HELP_NUMWORD:
+        return _HELP_NUMWORD[tok]
+    m = re.match(r"(\d+)(?:st|nd|rd|th)?$", tok)
+    return int(m.group(1)) if m else None
+
+
+def _help_run_index(goal: str):
+    # Anchored at the START so browser link verbs ("open number 5", "select 4") are NOT hijacked
+    # — only a leading menu-pick phrasing counts.
+    g = goal.strip().rstrip("?.!").lower()
+    m = re.match(
+        r"^(?:hey\s+\w+[, ]+)?(?:jarvis[, ]+)?"
+        r"(?:"
+        r"(?:do|run|use|pick|choose|go with|execute)\s+(?:the\s+)?(?:number|option|item|command)\s+([\w-]+)"
+        r"|(?:number|option|item|command)\s+([\w-]+)"
+        r"|(?:do|run|use|pick|choose|go with|execute)\s+(?:the\s+)?([\w-]+)\s+(?:one|option|command)"
+        r"|the\s+([\w-]+)\s+(?:one|option|command)"
+        r"|(?:do|run|pick|choose|use|execute)\s+(?:the\s+)?([\w-]+)"
+        r")\s*$", g)
+    if not m:
+        return None
+    tok = next((x for x in m.groups() if x), None)
+    return _token_to_index(tok) if tok else None
+
 
 # Bare entry with no project yet — "Jarvis, enter development mode" / "let's build something".
 # This is the door Michael asked for: it opens Dev Mode, then invites a full free-form
@@ -726,6 +765,7 @@ class Orchestrator:
         self._recent_created: list[str] = []  # paths created this session — "those files you made"
         self._pending_confirm: str | None = None  # an agent awaiting a spoken yes/no (e.g. file delete)
         self._pending_reply: str | None = None  # an agent mid-conversation (e.g. the Dev interview)
+        self._help_commands: list[dict] = []  # numbered commands from the last "help" card ("do number 3")
 
     def _publish(self, text: str) -> None:
         # Show WHAT I HEARD alongside what I'm doing, so a wrong transcript (the usual cause of
@@ -753,6 +793,28 @@ class Orchestrator:
             if result.data.get("await_confirm"):
                 self._pending_confirm = result.data.get("agent")
         return self._render(task, result)
+
+    async def _run_help_command(self, idx: int) -> str:
+        """Execute the command the user picked by number off the help card. A command with a
+        concrete ``run`` phrase is re-dispatched exactly as if spoken; a template/example (no
+        ``run`` — e.g. "delete the drafts folder", "find <words>") is never fired blindly, only
+        explained, so a number can't trigger something destructive or wrong."""
+        cmds = self._help_commands
+        n = len(cmds)
+        if idx == -1:
+            idx = n
+        if not (1 <= idx <= n):
+            self._publish("")
+            return f"The help card has {n} option{'s' if n != 1 else ''}. Say a number from 1 to {n}."
+        cmd = cmds[idx - 1]
+        say, does, run = cmd.get("say", ""), cmd.get("does", ""), cmd.get("run")
+        if run:
+            self._publish(f"Help ▸ {say}")
+            return await self.handle(run, addressed=True)
+        self._publish("")
+        if say.startswith("("):
+            return f"Number {idx}: {does}."
+        return f"That one takes your own details — {does}. Say it like: “{say}”."
 
     async def handle(self, goal: str, addressed: bool = True) -> str:
         # ``addressed`` = the user spoke the assistant's name this utterance (topic-change signal).
@@ -805,12 +867,20 @@ class Orchestrator:
         # wherever the user is — checked BEFORE the mission-focus redirect so asking for help
         # mid-interview shows Development-Mode help instead of being taken as an answer.
         if _HELP_HIDE_RE.match(goal.strip()):
+            self._help_commands = []
             task = Task(action="help.hide", agent="help", params={"argument": ""})
             return self._render(task, await self._dispatch(task))
         if _HELP_RE.match(goal.strip()):
             self._publish("Help…")
             task = Task(action="help.show", agent="help", params={"argument": ""})
-            return self._render(task, await self._dispatch(task))
+            result = await self._dispatch(task)
+            if isinstance(result.data, dict):  # remember the numbered list for "do number 3"
+                self._help_commands = list(result.data.get("help_commands") or [])
+            return self._render(task, result)
+        if self._help_commands:  # a help card is live — "do number 3" runs that command
+            ridx = _help_run_index(goal)
+            if ridx is not None:
+                return await self._run_help_command(ridx)
         # FOCUS. While a Development mission is mid-setup it IS the topic. A FOLLOW-UP (no name)
         # continues it — the answer to the assistant's question — so it never leaks to a global
         # route or a mishearing-driven topic jump. Saying the NAME signals a possible topic change,
