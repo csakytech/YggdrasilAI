@@ -319,6 +319,27 @@ _DEV_ENTER_RE = re.compile(
     r"(?:i(?:'d| would)? (?:like|want) to|help me|let'?s|i'?m going to|i wanna|can we|we should)?\s*"
     r"(?:build|create|make|develop|code|start building|write)\s+(?:me\s+)?"
     r"(?:a|an|my|some)\s+(?:\w+[ -]){0,3}" + _DEV_NOUN + r"\b", re.I)
+# Smart Help — "Jarvis, help" anywhere pops the context card. Anchored + $-terminated so it
+# fires ONLY on a bare ask for help, never on "help me write a book" / "help me set up …"
+# (those carry an object and are real requests that must route normally).
+_HELP_RE = re.compile(
+    r"^\s*(?:hey\s+\w+[,\s]+)?(?:jarvis[,\s]+)?"
+    r"(?:"
+    r"help(?:\s+me)?(?:\s+please)?|"
+    r"i\s+(?:need|want)\s+(?:some\s+)?help|"
+    r"(?:can|could)\s+you\s+help(?:\s+me)?|"
+    r"what\s+can\s+i\s+(?:say|do)(?:\s+(?:here|now))?|"
+    r"what\s+are\s+my\s+options|"
+    r"what\s+commands?(?:\s+(?:can\s+i\s+(?:say|use)|are\s+(?:there|available)))?|"
+    r"(?:show|tell)\s+me\s+(?:the\s+|my\s+)?(?:commands?|options|help)|"
+    r"how\s+d(?:o\s+i\s+use|oes)\s+this(?:\s+work)?|"
+    r"what\s+can\s+you\s+do(?:\s+here)?"
+    r")\s*[?.!]*\s*$", re.I)
+_HELP_HIDE_RE = re.compile(
+    r"^\s*(?:hey\s+\w+[,\s]+)?(?:jarvis[,\s]+)?(?:close|hide|dismiss|get rid of)\s+"
+    r"(?:the\s+|this\s+)?help(?:\s+(?:window|card))?\s*[?.!]*\s*$", re.I)
+
+
 # Bare entry with no project yet — "Jarvis, enter development mode" / "let's build something".
 # This is the door Michael asked for: it opens Dev Mode, then invites a full free-form
 # description before any questions, so a long spoken description never gets cut off up front.
@@ -780,6 +801,16 @@ class Orchestrator:
                 task = Task(action=f"{agent}.cancel", agent=agent, params={})
                 return self._render(task, await self._dispatch(task))
             # not a yes/no -> drop the pending confirmation and handle the new request normally
+        # SMART HELP. "Jarvis, help" (or "what can I say here?") pops a context-aware card for
+        # wherever the user is — checked BEFORE the mission-focus redirect so asking for help
+        # mid-interview shows Development-Mode help instead of being taken as an answer.
+        if _HELP_HIDE_RE.match(goal.strip()):
+            task = Task(action="help.hide", agent="help", params={"argument": ""})
+            return self._render(task, await self._dispatch(task))
+        if _HELP_RE.match(goal.strip()):
+            self._publish("Help…")
+            task = Task(action="help.show", agent="help", params={"argument": ""})
+            return self._render(task, await self._dispatch(task))
         # FOCUS. While a Development mission is mid-setup it IS the topic. A FOLLOW-UP (no name)
         # continues it — the answer to the assistant's question — so it never leaks to a global
         # route or a mishearing-driven topic jump. Saying the NAME signals a possible topic change,

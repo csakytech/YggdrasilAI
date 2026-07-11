@@ -13,6 +13,7 @@ from .agents.document_agent import DocumentsAgent
 from .agents.explain_agent import ExplainAgent
 from .agents.file_agent import FileAgent
 from .agents.focus_agent import FocusAgent
+from .agents.help_agent import HelpAgent
 from .agents.market_agent import MarketAgent
 from .agents.memory_agent import MemoryAgent
 from .agents.model_agent import ModelAgent
@@ -70,6 +71,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(BrowserAgent(bus, perms, models.get("reasoner") if models else None))
     registry.register(TaskAgent(bus, perms, models.get("coder") if models else None, sandbox))
     registry.register(FocusAgent(bus, perms))
+    registry.register(HelpAgent(bus, perms, models.get("reasoner") if models else None))
     registry.register(DocumentsAgent(bus, perms))
     registry.register(ExplainAgent(bus, perms, llm))
     registry.register(WriterAgent(bus, perms))
