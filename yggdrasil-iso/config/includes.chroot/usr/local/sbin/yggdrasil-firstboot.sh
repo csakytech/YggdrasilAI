@@ -37,6 +37,11 @@ if [ -n "$FIRST_USER" ] && ! id -nG "$FIRST_USER" 2>/dev/null | grep -qw sudo; t
         && log "added ${FIRST_USER} to the sudo group (installer skips this when a root password is set)"
 fi
 
+# --- Every ISO bakes the starter model (build fails otherwise — 0600 hook), so point the
+#     assistant at it IMMEDIATELY: it can talk while drivers install, through the activation
+#     reboot, and while the GPU-tier model downloads. Overwritten with the tier model later. ---
+[ -f /etc/yggdrasil/model.env ] || echo "YGGDRASIL_MODEL=llama3.2:3b" > /etc/yggdrasil/model.env
+
 # --- detect GPU vendor (works with just the open drivers — no proprietary driver needed) ---
 GPU=$(lspci -nn 2>/dev/null | grep -iE 'vga|3d controller|display controller' | head -1)
 case "$GPU" in
@@ -120,39 +125,60 @@ elif [ "$VRAM" -ge 6000  ]; then MODEL="qwen3:8b"
 elif [ "$VENDOR" = nvidia ]; then MODEL="qwen3:8b"    # NVIDIA present, driver not loaded yet -> assume 8b
 else                              MODEL="llama3.2:3b" # AMD/Intel/none -> CPU (degraded, warn user)
 fi
-echo "YGGDRASIL_MODEL=$MODEL" > /etc/yggdrasil/model.env
-log "VRAM=${VRAM}MiB vendor=${VENDOR} -> model=${MODEL}"
+log "VRAM=${VRAM}MiB vendor=${VENDOR} -> tier model=${MODEL}"
 
 # --- ensure Ollama is up ---
 systemctl start ollama.service 2>/dev/null || true
 for _ in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
 
-# --- pull the model if missing, with retries. network-online.target can fire before connectivity
-#     is actually usable, so wait for real internet and retry a few times. ---
-if ! ollama list 2>/dev/null | grep -q "${MODEL%%:*}"; then
-    setup_status "Preparing to download your assistant…"
+have_model() { ollama list 2>/dev/null | grep -q "${1%%:*}"; }
+
+# --- AI OUT OF THE BOX: every ISO bakes the STARTER model (CPU tier), so the assistant answers
+#     from the very first boot — no internet required, no multi-GB wait ("no AI in the system?"
+#     — real v1.2 user feedback). The GPU-tier model is a background UPGRADE, not a gate. ---
+STARTER="llama3.2:3b"
+if have_model "$MODEL"; then
+    echo "YGGDRASIL_MODEL=$MODEL" > /etc/yggdrasil/model.env
+elif have_model "$STARTER"; then
+    echo "YGGDRASIL_MODEL=$STARTER" > /etc/yggdrasil/model.env
+    log "starter model active (${STARTER}); ${MODEL} will download in the background"
+    setup_status "Your assistant is ready to talk — downloading a bigger model in the background…"
+fi
+
+# --- pull the tier model if missing, with retries. network-online.target can fire before
+#     connectivity is actually usable, so wait for real internet and retry a few times. The
+#     assistant keeps working on the starter model the whole time. ---
+if ! have_model "$MODEL"; then
     for attempt in 1 2 3 4 5; do
         for _ in $(seq 1 20); do curl -sf --max-time 5 https://registry.ollama.ai/ >/dev/null 2>&1 && break; sleep 3; done
         log "pulling ${MODEL} (attempt ${attempt})…"
         # Stream ollama's progress (it uses \r) into the status file so the Welcome window shows a %.
         ollama pull "$MODEL" 2>&1 | tr '\r' '\n' | while IFS= read -r line; do
             case "$line" in
-                *%*) setup_status "Downloading your assistant — $(printf '%s' "$line" | grep -oE '[0-9]+%' | tail -1)" ;;
+                *%*) setup_status "You can talk to me now — upgrading my brain in the background: $(printf '%s' "$line" | grep -oE '[0-9]+%' | tail -1)" ;;
             esac
         done
-        ollama list 2>/dev/null | grep -q "${MODEL%%:*}" && break
+        have_model "$MODEL" && break
         log "pull failed; retrying in 30s…"; sleep 30
     done
 fi
 
-# --- CRUCIAL: only mark first-boot done once the model is actually present, so a failed/interrupted
-#     pull retries on the next boot instead of leaving the assistant brainless forever. ---
-if ollama list 2>/dev/null | grep -q "${MODEL%%:*}"; then
+# --- stamp done only when the TIER model is in place (the timer keeps retrying the background
+#     upgrade until then; the starter keeps the assistant alive throughout). Air-gapped machines
+#     with no path to the tier model still work forever on the starter. ---
+if have_model "$MODEL"; then
+    echo "YGGDRASIL_MODEL=$MODEL" > /etc/yggdrasil/model.env
     touch "$STAMP"
     setup_status "Ready"
     systemctl disable --now yggdrasil-firstboot.timer 2>/dev/null || true
     log "first-boot complete — ${MODEL} is ready"
+    # The upgraded model applies to NEW assistant sessions (next login/restart); the current
+    # session keeps the starter. Warm the final model so the switch is instant.
+    systemctl restart yggdrasil-preload.service 2>/dev/null || true
+elif have_model "$STARTER"; then
+    setup_status "Ready (bigger model still downloading in the background)"
+    log "running on ${STARTER}; ${MODEL} not present yet — the firstboot timer will keep trying"
 else
     setup_status "Still downloading — will keep trying…"
-    log "model ${MODEL} not present yet — the firstboot timer will retry in a few minutes"
+    log "no model present yet — the firstboot timer will retry in a few minutes"
 fi

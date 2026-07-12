@@ -1,18 +1,28 @@
 #!/bin/sh
-# Install Ollama at build time. The daemon is enabled but no model is pulled here unless
-# this is the OFFLINE edition, in which case the default model is baked into the image.
+# Install Ollama at build time and bake the STARTER model into EVERY image: an AI OS must have
+# AI out of the box — no internet, no multi-GB wait, just a working assistant on first boot
+# ("no AI in the system?" — real user feedback on v1.2). The GPU-tier model upgrades in the
+# background at first boot when there's internet (see yggdrasil-firstboot.sh).
 set -e
 
 . /etc/yggdrasil-edition.env 2>/dev/null || YGG_EDITION=online
 
 export OLLAMA_SKIP_START=1
 curl -fsSL https://ollama.com/install.sh | sh    # installs /usr/local/bin/ollama + unit
-systemctl enable ollama.service                  # daemon on at boot; models come later
+systemctl enable ollama.service                  # daemon on at boot
 
+# CRITICAL PATH DETAIL: at runtime the daemon runs as the `ollama` user with models under
+# /usr/share/ollama/.ollama/models. A plain root pull in the chroot would land in /root/.ollama
+# and the baked model would be INVISIBLE to the installed system. Pull to the real path.
+export OLLAMA_MODELS=/usr/share/ollama/.ollama/models
+mkdir -p "$OLLAMA_MODELS"
+ollama serve & sleep 5
+# Starter model = the CPU tier from core/llm.py MODEL_TIERS — runs on any machine, ~2GB.
+ollama pull llama3.2:3b
 if [ "${YGG_EDITION}" = "offline" ]; then
-    # Bake the 12GB-tier default into the squashfs for air-gapped installs.
+    # Air-gapped edition additionally bakes the 12GB-tier default.
     # NOTE: model tags are [VERIFY] at build time; keep in sync with core/llm.py MODEL_TIERS.
-    ollama serve & sleep 5
     ollama pull qwen3:8b || true
-    kill %1 2>/dev/null || true
 fi
+kill %1 2>/dev/null || true
+chown -R ollama:ollama /usr/share/ollama/.ollama 2>/dev/null || true
