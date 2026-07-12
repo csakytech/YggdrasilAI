@@ -1,0 +1,14 @@
+[Unit]
+Description=Warm the Yggdrasil model into VRAM at boot (first reply in seconds, not minutes)
+After=ollama.service network-online.target
+Wants=ollama.service
+ConditionPathExists=/etc/yggdrasil/model.env
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/yggdrasil-preload
+TimeoutStartSec=660
+# oneshot without RemainAfterExit: reruns each boot; the warm-up is idempotent.
+
+[Install]
+WantedBy=multi-user.target

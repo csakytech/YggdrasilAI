@@ -1,0 +1,17 @@
+#!/bin/bash
+# Warm the assistant's model into VRAM at boot. Without this, the FIRST spoken command after a
+# reboot pays the whole cold-load (measured: 1m41s for qwen3:14b off the HDD on the RTX 3060 box)
+# and Jarvis just sits silent — the user experiences a broken assistant. keep_alive -1 pins it.
+set -u
+[ -f /etc/yggdrasil/model.env ] && . /etc/yggdrasil/model.env
+MODEL="${YGGDRASIL_MODEL:-}"
+[ -z "$MODEL" ] && exit 0
+
+for _ in $(seq 1 60); do
+    curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break
+    sleep 2
+done
+
+exec curl -sf --max-time 600 http://127.0.0.1:11434/api/generate \
+    -d "{\"model\":\"${MODEL}\",\"prompt\":\"hi\",\"keep_alive\":-1,\"options\":{\"num_predict\":1}}" \
+    >/dev/null

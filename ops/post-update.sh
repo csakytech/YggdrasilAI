@@ -42,4 +42,18 @@ if [ -f "$SUDO_SRC" ] && [ ! -f /etc/sudoers.d/yggdrasil-install ]; then
     install -m 440 "$SUDO_SRC" /etc/sudoers.d/yggdrasil-install || true
 fi
 
+# --- v1.2: model preload at boot --------------------------------------------------------------
+# The first spoken command after a reboot paid the full model cold-load (1m41s for qwen3:14b on
+# the 3060 box) while Jarvis sat silent. Warm it into VRAM at boot instead. Refresh on every
+# update; enable+start once.
+PRE_SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/local/bin/yggdrasil-preload
+PRE_SVC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/etc/systemd/system/yggdrasil-preload.service
+if [ -f "$PRE_SRC" ] && [ -f "$PRE_SVC" ]; then
+    install -m 755 "$PRE_SRC" /usr/local/bin/yggdrasil-preload || true
+    install -m 644 "$PRE_SVC" /etc/systemd/system/yggdrasil-preload.service || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable yggdrasil-preload.service >/dev/null 2>&1 || true
+    systemctl start --no-block yggdrasil-preload.service >/dev/null 2>&1 || true
+fi
+
 exit 0
