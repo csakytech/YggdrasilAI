@@ -12,12 +12,12 @@ if ! dpkg -s systemd-timesyncd >/dev/null 2>&1; then
 fi
 systemctl enable --now systemd-timesyncd >/dev/null 2>&1 || true
 
-# --- v0.9: upgrade the updater helper itself -----------------------------------------------
-# v0.7-era installs have a helper WITHOUT this migrations hook, so they must run this script
-# by hand once (release-notes one-liner). Installing the current helper here makes that single
-# run permanent: every future update applies its migrations automatically.
+# --- v0.9 (reworked v1.2): keep the updater helper itself current ---------------------------
+# ALWAYS refresh the helper from the release being installed (idempotent), so a fix to the
+# helper propagates on the next update. The old grep-guard left a broken -x gate in place
+# forever — which had silently skipped every migration in this file until v1.2-rc.
 UPD_SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/local/sbin/yggdrasil-update
-if [ -f "$UPD_SRC" ] && ! grep -q "post-update.sh" /usr/local/sbin/yggdrasil-update 2>/dev/null; then
+if [ -f "$UPD_SRC" ]; then
     install -m 755 "$UPD_SRC" /usr/local/sbin/yggdrasil-update || true
 fi
 
