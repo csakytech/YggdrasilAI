@@ -1,10 +1,11 @@
 {
-  "version": "1.1.0",
-  "tag": "v1.1.0",
+  "version": "1.2.0",
+  "tag": "v1.2.0",
   "changelog": [
-    "🚑 ThorOS 1.1 — an emergency fix for first-time setup. No feature changes; 1.0 installs should read the release notes.",
-    "Fixed: setting a root password during install left your user without admin (sudo) rights — and unable to receive updates. Setup now repairs this automatically.",
-    "Fixed: NVIDIA machines silently stayed on CPU forever — the driver installed but was never activated. Setup now restarts once to activate it and then picks the right AI model for your GPU.",
-    "Already on 1.0? Run: su - , then usermod -aG sudo YOUR_USERNAME , then reboot. (No root password set? Just reboot.)"
+    "🛠️ Software by voice — \"I want to make a video, what should I install?\" Jarvis researches, recommends, confirms, installs it from the Debian repos, and offers to open it. Or just say \"install OBS Studio\".",
+    "🔓 No login, no screen lock — the machine boots to a ready desktop and never locks you out (re-enable any time in Settings → Privacy).",
+    "⚡ First reply in seconds — the AI model is warmed into the GPU at boot instead of cold-loading on your first command.",
+    "🔎 \"Open Google and search for X\" now actually searches; web search defaults to DuckDuckGo (Google walls our voice browser behind CAPTCHAs — a locked door for hands-free users).",
+    "🔧 Self-update migrations now really run (a permissions bug had silently skipped them since v0.8) — updating to 1.2 applies the boot preload and no-lock defaults to your existing install too."
   ]
 }
