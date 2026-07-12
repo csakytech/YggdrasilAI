@@ -225,6 +225,16 @@ _RESEARCH_RE = re.compile(
     re.I,
 )
 
+# "Open google and search for X" (or "…and look up X") -> ONE app.search, deterministically.
+# Left to the planner this becomes browse-google + search — two firefox invocations that race
+# the browser's first startup, and the second (the actual search) gets silently dropped.
+_OPEN_AND_SEARCH_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?(?:can you |could you |please )?"
+    r"(?:open|go to|open up|start|launch)\s+(?:google|the browser|firefox)\s+and\s+"
+    r"(?:search(?: the web)?(?: for)?|look up|google|find)\s+(.+?)\s*$",
+    re.I,
+)
+
 # "Recommend/suggest software (an app, a program) for X" -> the Research agent's recommend flow,
 # deterministically — left to the LLM planner this routes to app.search, which opens a browser
 # with a Google search and dead-ends ("Searching the web for…" is not an answer). The research
@@ -1050,6 +1060,11 @@ class Orchestrator:
         if _SCHEDULE_RE.match(goal.strip()):  # "remind me…" / "schedule…" / "every weekday at 9…"
             self._publish("Scheduling…")
             task = Task(action="schedule.add", agent="schedule", params={"argument": goal})
+            return self._render(task, await self._dispatch(task))
+        oas = _OPEN_AND_SEARCH_RE.match(goal.strip())
+        if oas:  # "open google and search for X" -> one search (browse+search would race firefox)
+            self._publish("Searching…")
+            task = Task(action="app.search", agent="app", params={"argument": oas.group(1)})
             return self._render(task, await self._dispatch(task))
         if _RECOMMEND_RE.match(goal.strip()):  # "recommend software for X" -> research + offer install
             self._publish("Researching options…")

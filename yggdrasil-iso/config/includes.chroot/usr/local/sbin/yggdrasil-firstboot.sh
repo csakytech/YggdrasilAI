@@ -83,8 +83,23 @@ if [ "$VENDOR" = nvidia ] && ! nvidia_works; then
         if [ ! -f "$REBOOT_FLAG" ]; then
             touch "$REBOOT_FLAG"
             log "driver installed — restarting once to activate it (setup resumes automatically)"
-            setup_status "Graphics driver installed — restarting once to activate it…"
-            sleep 10
+            # Make the one-time restart UNMISSABLE (QA feedback: the user must be told, not
+            # surprised): a critical desktop notification in the user's session plus a 30-second
+            # countdown on the Welcome window's status line. Still automatic — a "please restart
+            # later" prompt is how machines end up running on CPU forever.
+            if [ -n "$FIRST_USER" ]; then
+                FUID=$(id -u "$FIRST_USER" 2>/dev/null)
+                sudo -u "$FIRST_USER" DISPLAY=:0 \
+                    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${FUID:-1000}/bus" \
+                    notify-send -u critical "ThorOS setup" \
+                    "Your graphics driver is installed. ThorOS will restart in 30 seconds to activate it — nothing to do, setup continues automatically." \
+                    2>/dev/null || true
+            fi
+            for s in 30 25 20 15 10 5; do
+                setup_status "Graphics driver installed — restarting in ${s} seconds to activate it (automatic, setup continues after)…"
+                sleep 5
+            done
+            setup_status "Restarting now…"
             systemctl reboot
             exit 0
         fi

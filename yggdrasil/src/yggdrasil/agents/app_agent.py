@@ -127,6 +127,10 @@ class AppsAgent(BaseAgent):
         'open youtube.com -> {"steps":[{"action":"app.browse","argument":"youtube.com"}]}',
         'search for robots -> {"steps":[{"action":"app.search","argument":"robots"}]}',
         'google self driving cars -> {"steps":[{"action":"app.search","argument":"self driving cars"}]}',
+        # "open google AND search X" is ONE search, not browse-then-search — two steps race the
+        # browser's first startup and the search can be dropped.
+        'open google and search for cats -> {"steps":[{"action":"app.search","argument":"cats"}]}',
+        'go to google and look up electric bikes -> {"steps":[{"action":"app.search","argument":"electric bikes"}]}',
     ]
     capabilities = {
         "launch": Capability("launch", False, "Open/launch a desktop application"),
@@ -279,10 +283,36 @@ class AppsAgent(BaseAgent):
         """Open a URL in Firefox WITH Marionette enabled, so the Browser agent can read/drive the
         page (list links, open one, read aloud). Marionette must be on from the FIRST launch, so we
         launch Firefox directly with --marionette rather than xdg-open. If Firefox is already up
-        (with Marionette), this just opens a new tab."""
+        (with Marionette), this just opens a new tab.
+
+        Firefox is SINGLE-INSTANCE: while the first instance is still STARTING (fresh boot, or the
+        slow first-ever run right after install), a second invocation's remote handoff is silently
+        dropped. That was the "open google and search for X" bug — google opened, the search never
+        arrived. If a firefox process exists but hasn't mapped a window yet, wait for it first."""
         ff = shutil.which("firefox") or shutil.which("firefox-esr") or "firefox"
+        if self._firefox_process() and not self._firefox_window_up():
+            deadline = time.time() + 15
+            while time.time() < deadline and not self._firefox_window_up():
+                time.sleep(0.4)
+            time.sleep(0.8)  # window mapped != remoting ready — give it a beat
         subprocess.Popen([ff, "--marionette", url],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    @staticmethod
+    def _firefox_process() -> bool:
+        try:
+            return subprocess.run(["pgrep", "-af", "firefox"], capture_output=True,
+                                  timeout=3).returncode == 0
+        except Exception:
+            return False
+
+    @staticmethod
+    def _firefox_window_up() -> bool:
+        try:
+            out = subprocess.run(["wmctrl", "-lx"], capture_output=True, text=True, timeout=3).stdout
+            return "firefox" in out.lower()
+        except Exception:
+            return False
 
     def _browse(self, target: str) -> str:
         if not self._has_display():
