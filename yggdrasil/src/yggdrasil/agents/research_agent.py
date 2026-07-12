@@ -32,6 +32,14 @@ _COINS = {
     "trx": "tron", "tron": "tron", "shib": "shiba-inu",
 }
 _PRICE_RE = re.compile(r"\b(price|worth|cost|value|trading|how much)\b", re.I)
+# "recommend software for X" — a software-recommendation lookup gets a structured answer so the
+# orchestrator can offer to install the top pick (the recommend -> offer -> install flow).
+_RECOMMEND_Q_RE = re.compile(
+    r"\b(?:recommend|suggest|best|what should i (?:use|install|get)|which)\b"
+    r".*\b(?:software|app|application|program|tool|editor)\b"
+    r"|\b(?:software|app|application|program)\b.*\b(?:recommend|suggest|to install|should i)\b",
+    re.I,
+)
 _WEATHER_RE = re.compile(r"\bweather|temperature|forecast|how (?:hot|cold|warm)\b", re.I)
 # WMO weather codes -> plain words (Open-Meteo)
 _WMO = {
@@ -53,6 +61,9 @@ class ResearchAgent(BaseAgent):
         'any news on tesla -> {"steps":[{"action":"research.lookup","argument":"news on tesla"}]}',
         'what is happening with the stock market -> {"steps":[{"action":"research.lookup","argument":"stock market news today"}]}',
         'look up the latest on the mars mission -> {"steps":[{"action":"research.lookup","argument":"latest news on the mars mission"}]}',
+        'recommend software for editing videos -> {"steps":[{"action":"research.lookup","argument":"recommend software for editing videos"}]}',
+        'i want to make a video, what software should i install -> {"steps":[{"action":"research.lookup","argument":"recommend software for making videos"}]}',
+        'what is a good program for editing photos -> {"steps":[{"action":"research.lookup","argument":"recommend a program for editing photos"}]}',
     ]
     capabilities = {
         "lookup": Capability("lookup", False, "Look up current info on the web and summarize it aloud"),
@@ -64,7 +75,10 @@ class ResearchAgent(BaseAgent):
 
     async def _execute(self, verb: str, params: dict[str, Any]) -> Any:
         if verb == "lookup":
-            return {"speech": await self._lookup((params.get("argument") or "").strip())}
+            query = (params.get("argument") or "").strip()
+            if _RECOMMEND_Q_RE.search(query):
+                return await self._recommend(query)
+            return {"speech": await self._lookup(query)}
         raise ValueError(f"unhandled verb '{verb}'")
 
     # ---- orchestration ----
@@ -96,6 +110,51 @@ class ResearchAgent(BaseAgent):
                 if w is not None:
                     return w
         return await self._web_snippets(query, n=6)
+
+    async def _recommend(self, query: str) -> dict:
+        """Software recommendation: research live, answer aloud, and hand the orchestrator a top
+        pick it can offer to install (never "here's a search page" — the answer IS the answer)."""
+        from ..core.config import get_name
+
+        if not self.llm:
+            return {"speech": "I need a language model to research recommendations."}
+        bundle = await self._web_snippets(f"{query} linux debian free open source", n=8)
+        if bundle is None:
+            return {"speech": "I couldn't reach the internet just now — check the connection and try again."}
+        if not bundle.strip():
+            bundle = "(no live results — fall back to well-known Debian software you are sure of)"
+        system = (
+            f"You are {get_name()}, a concise voice assistant on a Debian Linux system. The user asked: "
+            f"\"{query}\". Using the live search results below (plus well-established knowledge of Debian "
+            "software), recommend the best 1-2 programs installable from the standard Debian repositories. "
+            "Answer in a brief natural SPOKEN style — 2 to 3 short sentences, no markdown. Then, on two "
+            "extra lines, name your single top pick:\n"
+            "PICK: <the program's spoken name>\n"
+            "PACKAGE: <its exact Debian package name, lowercase>\n"
+            "If nothing suitable exists in the Debian repos, write PICK: none. /no_think"
+        )
+        try:
+            resp = await self.llm.generate(system=system, prompt=bundle, temperature=0.3)
+            text = resp.text.strip()
+        except Exception:
+            return {"speech": "I found some options but had trouble summarizing them."}
+        if not text:
+            return {"speech": "I found some options but couldn't summarize them."}
+        speech, pick, pkg = [], "", ""
+        for line in text.splitlines():
+            s = line.strip()
+            if s.lower().startswith("pick:"):
+                pick = s.split(":", 1)[1].strip().strip(".")
+            elif s.lower().startswith("package:"):
+                pkg = s.split(":", 1)[1].strip().strip(".").lower()
+            elif s:
+                speech.append(s)
+        out: dict = {"speech": " ".join(speech) or text}
+        if pick and pick.lower() != "none":
+            out["offer_install"] = pick
+            if pkg:
+                out["offer_pkg"] = pkg
+        return out
 
     async def _summarize(self, query: str, bundle: str) -> str:
         from ..core.config import get_name

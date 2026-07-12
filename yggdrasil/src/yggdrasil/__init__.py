@@ -5,5 +5,5 @@ in plain language and it gets real work done, entirely on your own machine.
 See ../../docs/ARCHITECTURE.md for the design.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __codename__ = "Thor"  # release codename (Norse gods)

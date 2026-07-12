@@ -1,0 +1,28 @@
+#!/bin/bash
+# Installs ONE Debian package from the configured repositories. Invoked via `sudo -n` by the
+# Software agent (/etc/sudoers.d/yggdrasil-install, %sudo NOPASSWD — same trust pattern as
+# yggdrasil-update). The single argument is strictly validated: no options, no paths, no shell
+# can pass through, and packages come only from the system's own apt sources.
+set -u
+
+pkg="${1:-}"
+if ! [[ "$pkg" =~ ^[a-z0-9][a-z0-9+.-]{1,80}$ ]]; then
+    echo "invalid package name" >&2
+    exit 2
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+
+if dpkg -s "$pkg" >/dev/null 2>&1; then
+    echo "already installed"
+    exit 0
+fi
+
+if apt-get install -y -q "$pkg"; then
+    exit 0
+fi
+
+# One retry behind a refreshed index — a fresh install's package lists may be stale enough
+# that a candidate exists upstream but isn't in the local index yet.
+apt-get update -q >/dev/null 2>&1 || true
+exec apt-get install -y -q "$pkg"

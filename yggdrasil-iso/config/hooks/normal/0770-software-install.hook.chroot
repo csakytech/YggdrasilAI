@@ -1,0 +1,13 @@
+#!/bin/sh
+# Wire up voice software installs (v1.2): the validated root helper the Software agent calls,
+# and its sudoers drop-in (must be 0440 or sudo ignores it). Dev edition: create the dev-mode
+# flag that switches on the QA transcript (core/transcript.py) — NEVER present on public ISOs.
+set -e
+chmod 0755 /usr/local/sbin/yggdrasil-install
+chmod 0440 /etc/sudoers.d/yggdrasil-install
+
+. /etc/yggdrasil-edition.env 2>/dev/null || YGG_EDITION=online
+if [ "${YGG_EDITION}" = "dev" ]; then
+    mkdir -p /etc/yggdrasil
+    touch /etc/yggdrasil/dev-mode
+fi

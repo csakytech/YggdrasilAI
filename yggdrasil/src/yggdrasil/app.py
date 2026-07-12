@@ -20,6 +20,7 @@ from .agents.model_agent import ModelAgent
 from .agents.research_agent import ResearchAgent
 from .agents.scheduler_agent import SchedulerAgent
 from .agents.security_agent import SecurityAgent
+from .agents.software_agent import SoftwareAgent
 from .agents.system_agent import SystemAgent
 from .agents.task_agent import TaskAgent
 from .agents.update_agent import UpdateAgent
@@ -76,6 +77,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(ExplainAgent(bus, perms, llm))
     registry.register(WriterAgent(bus, perms))
     registry.register(ResearchAgent(bus, perms, llm))
+    registry.register(SoftwareAgent(bus, perms))
     registry.register(SchedulerAgent(bus, perms, llm))
     market = MarketAgent(bus, perms, llm)
     registry.register(market)

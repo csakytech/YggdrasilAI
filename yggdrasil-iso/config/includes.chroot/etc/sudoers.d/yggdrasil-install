@@ -1,0 +1,4 @@
+# Let the Software agent install packages by voice via the validated helper (the helper accepts
+# exactly one strictly-checked package name — no options or shell reach apt). Members of the
+# sudo group only. Same trust pattern as /etc/sudoers.d/yggdrasil-update.
+%sudo ALL=(root) NOPASSWD: /usr/local/sbin/yggdrasil-install, /usr/local/sbin/yggdrasil-install *

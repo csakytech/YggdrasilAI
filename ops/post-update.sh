@@ -30,4 +30,16 @@ if [ -f "$HUD_SRC" ] && [ ! -x /usr/local/bin/yggdrasil-hud ]; then
     install -m 755 "$HUD_SRC" /usr/local/bin/yggdrasil-hud || true
 fi
 
+# --- v1.2: voice software installs -----------------------------------------------------------
+# The Software agent needs the validated root helper + its sudoers drop-in on machines that
+# predate the v1.2 ISO. Refresh the helper on every update so fixes to it propagate too.
+INST_SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/local/sbin/yggdrasil-install
+SUDO_SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/etc/sudoers.d/yggdrasil-install
+if [ -f "$INST_SRC" ]; then
+    install -m 755 "$INST_SRC" /usr/local/sbin/yggdrasil-install || true
+fi
+if [ -f "$SUDO_SRC" ] && [ ! -f /etc/sudoers.d/yggdrasil-install ]; then
+    install -m 440 "$SUDO_SRC" /etc/sudoers.d/yggdrasil-install || true
+fi
+
 exit 0

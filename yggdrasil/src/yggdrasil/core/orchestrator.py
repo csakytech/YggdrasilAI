@@ -13,7 +13,7 @@ import sys
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable
 
-from . import config, journal, mission, trace
+from . import config, journal, mission, trace, transcript
 from . import models as models_mod
 from .bus import Bus, Result, Status, Task
 from .focus import active_window
@@ -221,6 +221,20 @@ _RESEARCH_RE = re.compile(
     r"|(?:the\s+)?(?:price|value) of \w+"
     r"|weather (?:in|for|at|like in) \w+"
     r"|news (?:on|about|regarding) \w+"
+    r")",
+    re.I,
+)
+
+# "Recommend/suggest software (an app, a program) for X" -> the Research agent's recommend flow,
+# deterministically — left to the LLM planner this routes to app.search, which opens a browser
+# with a Google search and dead-ends ("Searching the web for…" is not an answer). The research
+# agent answers aloud and hands back a top pick the orchestrator offers to install.
+_RECOMMEND_RE = re.compile(
+    r"^\s*(?:hey\s+\w+[,\s]+)?(?:.{0,60}?\b(?:can|could|would) you\s+|please\s+)?(?:"
+    r"(?:recommend|suggest)\b.{0,80}\b(?:software|apps?|application|programs?|tools?)\b"
+    r"|(?:what|which)\s+(?:software|apps?|application|programs?|tools?)\b.{0,40}\b(?:install|use|get|download)\b"
+    r"|(?:what|which)(?:'s| is)? (?:a |the )?(?:good|best)\s+(?:software|app|application|program|tool)\b"
+    r"|(?:software|program|app|tool)s?\s+(?:should i|to)\s+(?:install|use|get)\b"
     r")",
     re.I,
 )
@@ -820,21 +834,26 @@ class Orchestrator:
         # ``addressed`` = the user spoke the assistant's name this utterance (topic-change signal).
         # Typed input and follow-ups default sensibly; the voice loop sets it explicitly.
         self._heard = (goal or "").strip()  # surface the transcript on the HUD while we work
+        transcript.log("user", text=self._heard, addressed=addressed)  # dev builds: the QA record
         # Never let a transient error (e.g. an LLM/network hiccup) crash the assistant.
         try:
-            return await self._handle(goal, addressed)
+            reply = await self._handle(goal, addressed)
         except Exception as e:  # noqa: BLE001
             print(f"[orchestrator] error handling goal: {e!r}", file=sys.stderr)
+            transcript.log("error", error=repr(e))
             msg = str(e).lower()
             if any(s in msg for s in ("not found", "404", "connect", "refus", "no such model")):
-                return ("I'm still getting set up — my language model may still be downloading. "
-                        "Give me a few minutes, then try again.")
-            try:  # don't dead-end on an error — let the backbone still try to help
-                ctx = self.memory.context() if self.memory else ""
-                return await self._assist(goal, ctx, problem="an internal error")
-            except Exception:
-                return ("I couldn't complete that one, but I can help another way — I work with files "
-                        "and folders, apps, web search, lookups, reminders and memory. What do you need?")
+                reply = ("I'm still getting set up — my language model may still be downloading. "
+                         "Give me a few minutes, then try again.")
+            else:
+                try:  # don't dead-end on an error — let the backbone still try to help
+                    ctx = self.memory.context() if self.memory else ""
+                    reply = await self._assist(goal, ctx, problem="an internal error")
+                except Exception:
+                    reply = ("I couldn't complete that one, but I can help another way — I work with files "
+                             "and folders, apps, web search, lookups, reminders and memory. What do you need?")
+        transcript.log("reply", text=reply)
+        return reply
 
     async def _handle(self, goal: str, addressed: bool = True) -> str:
         # Users address the assistant by name mid-conversation too ("Jarvis, set it up") —
@@ -1032,6 +1051,12 @@ class Orchestrator:
             self._publish("Scheduling…")
             task = Task(action="schedule.add", agent="schedule", params={"argument": goal})
             return self._render(task, await self._dispatch(task))
+        if _RECOMMEND_RE.match(goal.strip()):  # "recommend software for X" -> research + offer install
+            self._publish("Researching options…")
+            task = Task(action="research.lookup", agent="research", params={"argument": goal})
+            result = await self._dispatch(task)
+            reply = self._render(task, result)
+            return reply + await self._maybe_offer_install(result)
         if _RESEARCH_RE.match(goal.strip()):  # "price of bitcoin" / "weather in X" / "news on Y"
             self._publish("Looking that up…")
             task = Task(action="research.lookup", agent="research", params={"argument": goal})
@@ -1046,6 +1071,7 @@ class Orchestrator:
         tasks = await self.planner.plan(goal, memory_context=ctx, active=active)
         print(f"[plan] active={active} goal={goal!r} -> {[t.action for t in tasks]}",
               file=sys.stderr, flush=True)
+        transcript.log("plan", goal=goal, active=list(active or ()), actions=[t.action for t in tasks])
         if not tasks:
             self._publish("")
             # Name-addressed, nothing global matched, and a mission is waiting -> it was the answer
@@ -1083,6 +1109,8 @@ class Orchestrator:
                 ok = False
                 denied = denied or result.status is Status.DENIED
             replies.append(self._render(task, result))
+            if task.action == "research.lookup":  # a planned recommendation can offer an install too
+                replies[-1] += await self._maybe_offer_install(result)
         self._publish("")  # done — let the HUD fade out
         # Never dead-end: if nothing worked (and the user didn't deliberately cancel), hand off to the
         # backbone to explain and offer a path forward instead of a flat "I couldn't do that".
@@ -1093,6 +1121,26 @@ class Orchestrator:
         trace.record(trace.Decision(goal=goal, active=active, memory_used=bool(ctx),
                                     route="action", steps=steps, outcome=reply, ok=ok))
         return reply
+
+    async def _maybe_offer_install(self, result: Result) -> str:
+        """The recommend -> offer -> install glue. When the Research agent hands back a top pick,
+        stage it with the Software agent (which validates it against apt) and, only if it's really
+        installable, ask the one question that keeps the conversation going instead of dead-ending.
+        Returns the sentence to append to the spoken reply ("" when there's nothing to offer)."""
+        data = result.data if isinstance(result.data, dict) else {}
+        pick = (data.get("offer_install") or "").strip()
+        if not pick or result.status is not Status.OK:
+            return ""
+        arg = (data.get("offer_pkg") or "").strip() or pick
+        prime = await self._dispatch(Task(action="software.prime", agent="software",
+                                          params={"argument": arg}))
+        pdata = prime.data if isinstance(prime.data, dict) else {}
+        if prime.status is Status.OK and pdata.get("ok"):
+            self._pending_confirm = "software"
+            return f" Would you like me to install {pick} for you?"
+        if prime.status is Status.OK and pdata.get("already"):
+            return f" You already have {pick} installed — just say “open {pick}”."
+        return ""
 
     async def _assist(self, goal: str, ctx: str, problem: str = "") -> str:
         """The fallback backbone — Jarvis's job is to help to the maximum, so this NEVER dead-ends.
@@ -1176,7 +1224,10 @@ class Orchestrator:
             task.params["path"] = self._last_path
 
     async def _dispatch(self, task: Task) -> Result:
+        transcript.log("task", action=task.action, params=task.params)
         result = await self.bus.request(task.agent, task)
+        transcript.log("result", action=task.action, status=result.status.name,
+                       data=result.data, error=result.error)
         if result.status is Status.AWAITING_AUTH and result.challenge is not None:
             code = await self.auth_resolver(result.challenge)
             token = self.perms.verify(result.challenge.challenge_id, code)
