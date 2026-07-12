@@ -56,4 +56,17 @@ if [ -f "$PRE_SRC" ] && [ -f "$PRE_SVC" ]; then
     systemctl start --no-block yggdrasil-preload.service >/dev/null 2>&1 || true
 fi
 
+# --- v1.2: no screen lock on a voice appliance ------------------------------------------------
+# Autologin (firstboot) + an idle lock screen demanding a password is a contradiction — users
+# who can't type were locked out an hour in. Bake the no-lock system defaults onto existing
+# installs too (users can re-enable in Settings > Privacy).
+DCONF_SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/etc/dconf/db/local.d/00-yggdrasil-nolock
+if [ -f "$DCONF_SRC" ] && [ -d /etc/dconf/db ]; then
+    mkdir -p /etc/dconf/db/local.d /etc/dconf/profile
+    grep -qs "system-db:local" /etc/dconf/profile/user 2>/dev/null \
+        || printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+    install -m 644 "$DCONF_SRC" /etc/dconf/db/local.d/00-yggdrasil-nolock || true
+    dconf update >/dev/null 2>&1 || true
+fi
+
 exit 0

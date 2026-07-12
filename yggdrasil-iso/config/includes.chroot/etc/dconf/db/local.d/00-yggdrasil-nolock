@@ -1,0 +1,18 @@
+# ThorOS is a hands-free voice appliance: it autologs in (firstboot sets GDM AutomaticLogin),
+# so an idle screen lock demanding a password would betray the whole promise — especially for
+# users who physically can't type one. System DEFAULTS (users can still re-enable locking in
+# Settings > Privacy; their password remains active for sudo/installs):
+#   - never lock the screen (idle or after suspend)
+#   - never auto-suspend on AC power (a suspended assistant can't hear its wake word)
+# The screen may still BLANK on idle — wake-on-speak (v0.9) brings it back by voice.
+
+[org/gnome/desktop/screensaver]
+lock-enabled=false
+lock-delay=uint32 0
+ubuntu-lock-on-suspend=false
+
+[org/gnome/desktop/lockdown]
+disable-lock-screen=true
+
+[org/gnome/settings-daemon/plugins/power]
+sleep-inactive-ac-type='nothing'
