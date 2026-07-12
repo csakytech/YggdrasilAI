@@ -11,18 +11,27 @@ export OLLAMA_SKIP_START=1
 curl -fsSL https://ollama.com/install.sh | sh    # installs /usr/local/bin/ollama + unit
 systemctl enable ollama.service                  # daemon on at boot
 
+# The installer AUTO-STARTS a server when systemd isn't running (i.e. in this build chroot),
+# ignoring OLLAMA_SKIP_START — it grabs :11434 with the wrong model path and the pull 400s
+# (bit the first v1.3 build). Kill it and run our own.
+pkill -x ollama 2>/dev/null || true
+sleep 2
+
 # CRITICAL PATH DETAIL: at runtime the daemon runs as the `ollama` user with models under
 # /usr/share/ollama/.ollama/models. A plain root pull in the chroot would land in /root/.ollama
 # and the baked model would be INVISIBLE to the installed system. Pull to the real path.
 export OLLAMA_MODELS=/usr/share/ollama/.ollama/models
 mkdir -p "$OLLAMA_MODELS"
-ollama serve & sleep 5
+chown -R ollama:ollama /usr/share/ollama 2>/dev/null || true
+HOME=/root ollama serve >/tmp/ollama-build.log 2>&1 &
+for _ in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
 # Starter model = the CPU tier from core/llm.py MODEL_TIERS — runs on any machine, ~2GB.
+# Deliberately NOT '|| true': a build that can't bake the brain must FAIL, not ship brainless.
 ollama pull llama3.2:3b
 if [ "${YGG_EDITION}" = "offline" ]; then
     # Air-gapped edition additionally bakes the 12GB-tier default.
     # NOTE: model tags are [VERIFY] at build time; keep in sync with core/llm.py MODEL_TIERS.
     ollama pull qwen3:8b || true
 fi
-kill %1 2>/dev/null || true
+pkill -x ollama 2>/dev/null || true
 chown -R ollama:ollama /usr/share/ollama/.ollama 2>/dev/null || true
