@@ -1,13 +1,10 @@
 {
-  "version": "0.7",
-  "tag": "v0.7",
-  "date": "2026-06-30",
+  "version": "1.1.0",
+  "tag": "v1.1.0",
   "changelog": [
-    "Community marketplace — install AI agents by voice (sandboxed)",
-    "Turn plain requests into commands, run safely",
-    "Understands spoken file names; always confirms before deleting",
-    "Live Scheduled Tasks window",
-    "Self-hosted Matrix community chat",
-    "Self-update — no more reinstalling to get new features"
+    "🚑 ThorOS 1.1 — an emergency fix for first-time setup. No feature changes; 1.0 installs should read the release notes.",
+    "Fixed: setting a root password during install left your user without admin (sudo) rights — and unable to receive updates. Setup now repairs this automatically.",
+    "Fixed: NVIDIA machines silently stayed on CPU forever — the driver installed but was never activated. Setup now restarts once to activate it and then picks the right AI model for your GPU.",
+    "Already on 1.0? Run: su - , then usermod -aG sudo YOUR_USERNAME , then reboot. (No root password set? Just reboot.)"
   ]
 }
