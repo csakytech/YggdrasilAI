@@ -18,6 +18,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from ..core import transcript
 from ..core.focus import set_target
 from ..core.permissions import Capability
 from .base import BaseAgent
@@ -290,9 +291,9 @@ class AppsAgent(BaseAgent):
         dropped. That was the "open google and search for X" bug — google opened, the search never
         arrived. If a firefox process exists but hasn't mapped a window yet, wait for it first."""
         ff = shutil.which("firefox") or shutil.which("firefox-esr") or "firefox"
-        if self._firefox_process() and not self._firefox_window_up():
+        if AppsAgent._firefox_process() and not AppsAgent._firefox_window_up():
             deadline = time.time() + 15
-            while time.time() < deadline and not self._firefox_window_up():
+            while time.time() < deadline and not AppsAgent._firefox_window_up():
                 time.sleep(0.4)
             time.sleep(0.8)  # window mapped != remoting ready — give it a beat
         subprocess.Popen([ff, "--marionette", url],
@@ -331,7 +332,8 @@ class AppsAgent(BaseAgent):
             self.last_app = "firefox"
             self._track_launched(before, timeout=1.5)
             return f"Opening {t}."
-        except Exception:
+        except Exception as e:
+            transcript.log("agent_error", agent="app", verb="browse", error=repr(e))
             return f"I couldn't open {t}."
 
     def _search(self, query: str) -> str:
@@ -349,7 +351,8 @@ class AppsAgent(BaseAgent):
             browsing.set_search(q, engine="google")
             self._track_launched(before, timeout=1.5)
             return f"Searching the web for {q}."
-        except Exception:
+        except Exception as e:
+            transcript.log("agent_error", agent="app", verb="search", error=repr(e))
             return f"I couldn't search for {q}."
 
     def _list_apps(self) -> str:

@@ -28,3 +28,32 @@ def test_open_and_search_is_one_search(phrase, query):
 ])
 def test_open_and_search_leaves_others_alone(phrase):
     assert not _OPEN_AND_SEARCH_RE.match(phrase)
+
+
+def test_open_in_firefox_executes(monkeypatch):
+    """Regression: rc3 shipped a NameError (self in a @staticmethod) inside _open_in_firefox —
+    every browse/search failed with a friendly apology. Exercise the real code path with the
+    process spawn stubbed out."""
+    from yggdrasil.agents import app_agent
+
+    calls = []
+    monkeypatch.setattr(app_agent.subprocess, "Popen",
+                        lambda argv, **kw: calls.append(argv))
+    monkeypatch.setattr(app_agent.AppsAgent, "_firefox_process", staticmethod(lambda: False))
+    app_agent.AppsAgent._open_in_firefox("https://example.com")
+    assert calls and calls[0][-1] == "https://example.com" and "--marionette" in calls[0]
+
+
+def test_open_in_firefox_waits_for_starting_instance(monkeypatch):
+    from yggdrasil.agents import app_agent
+
+    calls = []
+    windows = iter([False, False, True])  # firefox process exists; window appears on 3rd poll
+    monkeypatch.setattr(app_agent.subprocess, "Popen",
+                        lambda argv, **kw: calls.append(argv))
+    monkeypatch.setattr(app_agent.AppsAgent, "_firefox_process", staticmethod(lambda: True))
+    monkeypatch.setattr(app_agent.AppsAgent, "_firefox_window_up",
+                        staticmethod(lambda: next(windows, True)))
+    monkeypatch.setattr(app_agent.time, "sleep", lambda s: None)
+    app_agent.AppsAgent._open_in_firefox("https://example.com")
+    assert calls  # the URL was still sent after the wait
