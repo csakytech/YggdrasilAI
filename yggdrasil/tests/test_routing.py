@@ -57,3 +57,16 @@ def test_open_in_firefox_waits_for_starting_instance(monkeypatch):
     monkeypatch.setattr(app_agent.time, "sleep", lambda s: None)
     app_agent.AppsAgent._open_in_firefox("https://example.com")
     assert calls  # the URL was still sent after the wait
+
+
+def test_default_search_engine_is_captcha_free(monkeypatch, tmp_path):
+    """Google CAPTCHAs marionette-flagged browsers — a hard wall for hands-free users. The
+    default engine must never be google unless the user explicitly chose it."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("YGGDRASIL_SEARCH_ENGINE", raising=False)
+    from yggdrasil.core import config
+    assert config.get_search_engine() == "duckduckgo"
+    config.set_search_engine("google")
+    assert config.get_search_engine() == "google"
+    config.set_search_engine("something-weird")
+    assert config.get_search_engine() == "duckduckgo"

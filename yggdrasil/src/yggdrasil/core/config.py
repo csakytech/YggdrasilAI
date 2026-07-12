@@ -61,6 +61,21 @@ def get_wake_mode() -> str:
     return (os.environ.get("YGGDRASIL_WAKE_MODE") or _raw().get("wake_mode") or _DEFAULT_MODE).lower()
 
 
+def get_search_engine() -> str:
+    """The visual web-search engine. DuckDuckGo by default — NOT Google: we launch Firefox with
+    Marionette for voice browsing, which sets navigator.webdriver, and Google answers webdriver
+    browsers with a CAPTCHA. A CAPTCHA is a hard wall for hands-free users (that's its whole
+    point), so the default engine must be one that doesn't throw them."""
+    e = (os.environ.get("YGGDRASIL_SEARCH_ENGINE") or _raw().get("search_engine") or "duckduckgo")
+    return e.lower() if e.lower() in ("duckduckgo", "google", "bing") else "duckduckgo"
+
+
+def set_search_engine(engine: str) -> None:
+    cfg = _raw()
+    cfg["search_engine"] = (engine or "duckduckgo").lower()
+    _save(cfg)
+
+
 def get_voice() -> str:
     """The chosen voice id (e.g. 'en_US-ryan-high'); '' = whatever the launcher provides."""
     return _raw().get("voice") or ""

@@ -342,13 +342,20 @@ class AppsAgent(BaseAgent):
         q = query.strip()
         if not q:
             return "Search for what?"
-        url = "https://www.google.com/search?q=" + urllib.parse.quote(q)
+        from ..core import browsing, config
+        engine = config.get_search_engine()  # duckduckgo default — google CAPTCHAs our
+        qs = urllib.parse.quote(q)           # marionette browser, a hard wall hands-free
+        if engine == "google":
+            url = f"https://www.google.com/search?q={qs}"
+        elif engine == "bing":
+            url = f"https://www.bing.com/search?q={qs}"
+        else:
+            url = f"https://duckduckgo.com/?q={qs}"
         try:
             before = self._window_ids()
             self._open_in_firefox(url)
             self.last_app = "firefox"
-            from ..core import browsing  # remember the search so "next page" can page through it
-            browsing.set_search(q, engine="google")
+            browsing.set_search(q, engine=engine)  # so "next page" pages the same engine
             self._track_launched(before, timeout=1.5)
             return f"Searching the web for {q}."
         except Exception as e:
