@@ -16,10 +16,10 @@ model (online edition), and starts the assistant.
 
 ```bash
 # Lean / online (~3-4 GB): LLM pulled on first boot
-sudo lb clean --purge && lb config && sudo YGG_EDITION=online  lb build
+sudo lb clean --purge && YGG_EDITION=online lb config && sudo lb build   # YGG_EDITION matters at CONFIG time
 
 # Offline / bundled (~9-10 GB): default LLM baked into the image (air-gapped installs)
-sudo lb clean --purge && lb config && sudo YGG_EDITION=offline lb build
+sudo lb clean --purge && YGG_EDITION=offline lb config && sudo lb build
 ```
 
 Drop the built app package into `config/packages.chroot/yggdrasil_*.deb` before building
