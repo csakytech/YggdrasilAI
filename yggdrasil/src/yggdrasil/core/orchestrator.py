@@ -10,6 +10,7 @@ import copy
 import os
 import re
 import sys
+from collections import deque
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable
 
@@ -222,6 +223,17 @@ _RESEARCH_RE = re.compile(
     r"|weather (?:in|for|at|like in) \w+"
     r"|news (?:on|about|regarding) \w+"
     r")",
+    re.I,
+)
+
+# "Repeat that / say that again / what did you say" -> re-speak the last reply, verbatim and
+# deterministically. Essential with full duplex: a barge-in legitimately CUTS a reply
+# mid-sentence, so asking for it again is the most natural utterance in the system — it must
+# never depend on the planner guessing.
+_REPEAT_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?(?:can you |could you |would you |please )*"
+    r"(?:repeat (?:that|it|this|what you (?:just )?said)|say (?:that|it) again|"
+    r"what did you (?:just )?say|come again)\b",
     re.I,
 )
 
@@ -789,6 +801,10 @@ class Orchestrator:
         self._recent_created: list[str] = []  # paths created this session — "those files you made"
         self._pending_confirm: str | None = None  # an agent awaiting a spoken yes/no (e.g. file delete)
         self._pending_reply: str | None = None  # an agent mid-conversation (e.g. the Dev interview)
+        # Short-term conversational memory: the last few exchanges, fed to the planner and the
+        # conversational fallback so "tell me more" / "what was that called?" have something to
+        # refer to, and "repeat that" can re-speak the last reply verbatim.
+        self._dialogue: deque[tuple[str, str]] = deque(maxlen=6)
         self._help_commands: list[dict] = []  # numbered commands from the last "help" card ("do number 3")
 
     def _publish(self, text: str) -> None:
@@ -863,6 +879,8 @@ class Orchestrator:
                     reply = ("I couldn't complete that one, but I can help another way — I work with files "
                              "and folders, apps, web search, lookups, reminders and memory. What do you need?")
         transcript.log("reply", text=reply)
+        if self._heard and reply:
+            self._dialogue.append((self._heard, reply))
         return reply
 
     async def _handle(self, goal: str, addressed: bool = True) -> str:
@@ -883,6 +901,8 @@ class Orchestrator:
                     "could break your machine. If you genuinely need to wipe a disk or reinstall, do that "
                     "deliberately yourself, with backups — not by voice.")
         if self._pending_confirm:  # we just asked a yes/no (e.g. "Delete X?") — interpret the answer
+            if _REPEAT_RE.match(goal.strip()) and self._dialogue:
+                return self._dialogue[-1][1]  # re-ask; the question stays pending for the real answer
             agent = self._pending_confirm
             self._pending_confirm = None
             if _YES_RE.match(goal.strip()):
@@ -920,6 +940,11 @@ class Orchestrator:
             mission.active() and mission.load().get("stage") in ("describe", "interview", "proposal"))
         if in_dev and not addressed:
             return await self._answer_dev(goal)
+        if _REPEAT_RE.match(goal.strip()):  # "repeat that" -> the last reply, verbatim (vital
+            self._publish("")               # with barge-in, which can cut a reply mid-sentence)
+            if self._dialogue:
+                return self._dialogue[-1][1]
+            return "I haven't said anything yet."
         if _EXPLAIN_RE.match(goal.strip()):  # "why did you…" -> explain my last action, reliably
             self._publish("")
             task = Task(action="explain.why", agent="explain", params={"argument": ""})
@@ -1077,6 +1102,10 @@ class Orchestrator:
             task = Task(action="research.lookup", agent="research", params={"argument": goal})
             return self._render(task, await self._dispatch(task))
         ctx = self.memory.context() if self.memory else ""
+        if self._dialogue:  # short-term memory: "tell me more" / "what was that called?" refer here
+            recent = "\n".join(f"User said: \"{g[:160]}\" — you replied: \"{r[:220]}\""
+                               for g, r in list(self._dialogue)[-4:])
+            ctx += "\nThe conversation so far (oldest first):\n" + recent
         if self._recent_created:  # session awareness: the planner can resolve "the book folder",
             ctx += ("\nFolders/files you created earlier in this session (references like "
                     "'those files' or 'the folder you made' mean these): "

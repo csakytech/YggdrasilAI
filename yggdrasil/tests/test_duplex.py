@@ -102,3 +102,18 @@ def test_uninterrupted_playback_completes(tmp_path, monkeypatch):
 def test_wake_name_still_strips_inside_conversation():
     assert strip_wake_name("Jarvis", "Jarvis, open the browser") == "open the browser"
     assert strip_wake_name("Jarvis", "what about tomorrow") is None
+
+
+# ---- "repeat that" + short-term dialogue memory (found in live duplex QA: an interrupted
+# reply is exactly when a human says "can you repeat that" — and Jarvis had no memory of it) ----
+
+def test_repeat_phrases_route():
+    from yggdrasil.core.orchestrator import _REPEAT_RE
+
+    for p in ("repeat that", "can you repeat that", "say that again", "what did you say",
+              "what did you just say", "come again", "please repeat that",
+              "Jarvis, repeat that", "could you say it again"):
+        assert _REPEAT_RE.match(p), p
+    for p in ("repeat after me hello", "say hello again", "what did you do",
+              "repeat the last command in the terminal"):
+        assert not _REPEAT_RE.match(p), p
