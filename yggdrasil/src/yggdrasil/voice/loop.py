@@ -79,6 +79,27 @@ def strip_wake_name(name: str, text: str) -> str | None:
     return text[m.end():].strip() if m else None
 
 
+_WORDS = re.compile(r"[a-z0-9']+")
+
+
+def sounds_like_echo(heard: str, spoken: str) -> bool:
+    """True when what the mic 'heard' during/after playback is really the assistant's OWN
+    voice bleeding from the speakers (no acoustic echo cancellation, or an imperfect one).
+    Two signals: the heard words are a near-subset of what was being spoken, or the two texts
+    are highly similar overall. Deliberately conservative — a false positive here swallows a
+    real user interruption, which is worse than an occasional self-reply glitch."""
+    import difflib
+
+    h = _WORDS.findall((heard or "").lower())
+    s = _WORDS.findall((spoken or "").lower())
+    if not h or not s:
+        return False
+    hs, ss = set(h), set(s)
+    if len(hs - ss) <= max(0, len(hs) // 5):  # ≥80% of heard words appear in the spoken text
+        return True
+    return difflib.SequenceMatcher(None, " ".join(h), " ".join(s)).ratio() > 0.75
+
+
 class VoiceAssistant:
     """Owns the mic stream and the wake/endpoint logic. `on_text(text)` returns
     (reply, conversation_over)."""
@@ -95,6 +116,11 @@ class VoiceAssistant:
         self.wake_threshold = float(os.environ.get("YGGDRASIL_WAKE_THRESHOLD", DEF_WAKE_THRESHOLD))
         self.vad_energy = float(os.environ.get("YGGDRASIL_VAD_ENERGY", DEF_VAD_ENERGY))
         self.wake_mode = config.get_wake_mode()  # "name" (say the name) | "model" (openWakeWord)
+        # Full duplex: keep listening WHILE speaking, so the user can interrupt ("barge in")
+        # and follow-ups flow like a real conversation. YGGDRASIL_DUPLEX=0 restores the old
+        # strictly-turn-taking behavior.
+        self.duplex = os.environ.get("YGGDRASIL_DUPLEX", "1") != "0"
+        self.barge_mult = float(os.environ.get("YGGDRASIL_BARGE_MULT", "2.0"))
         self.wake = self.wake_key = None
         if self.wake_mode == "model":
             from openwakeword.model import Model
@@ -138,6 +164,86 @@ class VoiceAssistant:
             return ""
         f32 = audio.astype(self.np.float32) / 32768.0
         return self.recognizer.transcribe_array(f32).text.strip()
+
+    def _speak_with_bargein(self, text: str):
+        """Speak the reply while WATCHING THE MIC (full duplex). Returns None if the reply
+        played out normally; on barge-in, stops the voice mid-sentence and returns the mic
+        frames of the user's opening words (prefill for capture_text).
+
+        Echo strategy: the speakers bleed into the mic, so a fixed threshold can't tell the
+        user from the assistant. A rolling MEDIAN of the mic level during THIS playback is the
+        echo envelope for this room/volume (median resists brief user speech); a real
+        interruption is ~320ms of sustained level well above both that envelope and the normal
+        VAD floor. A PipeWire echo-cancelled source (dev/ISO config) makes this trivially
+        reliable; the envelope keeps it workable without one."""
+        import threading
+
+        if not self.duplex:
+            self.speaker.say(text)
+            return None
+        np = self.np
+        cancel = threading.Event()
+        done = threading.Event()
+
+        def _play():
+            try:
+                self.speaker.say_cancellable(text, cancel)
+            finally:
+                done.set()
+
+        t = threading.Thread(target=_play, daemon=True)
+        t.start()
+        levels: list[float] = []  # rolling window of playback-echo loudness
+        consec, barge = 0, []
+        while not done.is_set():
+            try:
+                frame = self._read()
+            except Exception:
+                break  # mic hiccup — let the reply finish; outer loops recover the stream
+            r = self._rms(frame)
+            levels.append(r)
+            del levels[:-25]  # keep ~2s
+            envelope = sorted(levels)[len(levels) // 2]
+            threshold = max(self.vad_energy * self.barge_mult, envelope * 2.5)
+            if r >= threshold:
+                consec += 1
+                barge.append(frame)
+                if consec >= 4:  # ~320ms of sustained speech over the echo — a real barge-in
+                    cancel.set()
+                    break
+            else:
+                consec, barge = 0, []
+        t.join(timeout=3)
+        if cancel.is_set() and barge:
+            print("[barge-in]", file=sys.stderr, flush=True)
+            return np.concatenate(barge)
+        return None
+
+    def _converse(self, command: str, addressed: bool) -> float:
+        """One conversational exchange, full duplex: answer, and if the user interrupts or
+        follows up, keep the thread going — no wake word needed inside the conversation.
+        Returns the new conversation_until deadline."""
+        while True:
+            print(f"you (voice) > {command}{'' if addressed else '  [follow-up]'}", flush=True)
+            reply, over = self.on_text(command, addressed)
+            print(f"jarvis > {reply}", flush=True)
+            prefill = self._speak_with_bargein(reply)
+            if prefill is None:
+                return 0.0 if over else time.time() + CONVERSATION_WINDOW_S
+            heard = self.capture_text(prefill=prefill)
+            if not heard or sounds_like_echo(heard, reply):
+                # our own voice reflected (or noise) — the reply was cut, but resuming a
+                # half-spoken sentence is worse than moving on
+                return 0.0 if over else time.time() + CONVERSATION_WINDOW_S
+            named = self._strip_name(heard)
+            addressed = named is not None
+            command = named if named else heard
+            if not command:  # bare name mid-conversation — "yes?" and listen fresh
+                self.speaker.say("Yes?")
+                command = self.capture_text()
+                if not command:
+                    return time.time() + CONVERSATION_WINDOW_S
+                addressed = True
 
     def run(self) -> None:
         self.speaker.say(self.greeting)
@@ -194,11 +300,7 @@ class VoiceAssistant:
                     _wake_display()
                 else:
                     continue  # speech not addressed to us — ignore
-                print(f"you (voice) > {command}{'' if addressed else '  [follow-up]'}", flush=True)
-                reply, over = self.on_text(command, addressed)
-                print(f"jarvis > {reply}", flush=True)
-                self.speaker.say(reply)
-                conversation_until = 0.0 if over else time.time() + CONVERSATION_WINDOW_S
+                conversation_until = self._converse(command, addressed)
             except KeyboardInterrupt:
                 raise
             except self.sd.PortAudioError:
@@ -233,11 +335,7 @@ class VoiceAssistant:
                 if not text:
                     conversation_until = 0.0
                     continue
-                print(f"you (voice) > {text}{'' if asleep else '  [follow-up]'}", flush=True)
-                reply, over = self.on_text(text, asleep)
-                print(f"jarvis > {reply}", flush=True)
-                self.speaker.say(reply)
-                conversation_until = 0.0 if over else time.time() + CONVERSATION_WINDOW_S
+                conversation_until = self._converse(text, asleep)
             except KeyboardInterrupt:
                 raise
             except Exception as e:

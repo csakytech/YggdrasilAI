@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 
@@ -69,12 +70,17 @@ class Speaker:
         return out
 
     def say(self, text: str) -> None:
-        """Speak text aloud (blocking — the mic should be closed during playback so the
-        assistant doesn't hear itself). Never raises: voice is an enhancement, not a
-        dependency."""
+        """Speak text aloud, blocking, uninterruptible. Never raises: voice is an
+        enhancement, not a dependency."""
+        self.say_cancellable(text, None)
+
+    def say_cancellable(self, text: str, cancel) -> bool:
+        """Speak text; if ``cancel`` (a threading.Event) is set mid-playback, stop within
+        ~50ms — this is what makes barge-in possible (full-duplex conversation). Returns True
+        if the utterance played to completion, False if it was cut short. Never raises."""
         text = (text or "").strip()
         if not text:
-            return
+            return True
         if self.voice_source:
             try:
                 cur = self.voice_source()
@@ -84,22 +90,37 @@ class Speaker:
                 pass
         with self._lock:
             wav = None
+            proc = None
             try:
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
                     wav = tf.name
                 self.synthesize(text, wav)
-                subprocess.run(
+                if cancel is not None and cancel.is_set():
+                    return False  # interrupted during synthesis — don't even start
+                proc = subprocess.Popen(
                     [self.player, wav],
-                    check=False,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     env=self._env,
                 )
+                while proc.poll() is None:
+                    if cancel is not None and cancel.is_set():
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=1)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                        return False
+                    time.sleep(0.05)
+                return True
             except (FileNotFoundError, subprocess.SubprocessError) as e:
                 if not self._warned:
                     print(f"[voice] TTS unavailable ({e}); continuing without speech.", file=sys.stderr)
                     self._warned = True
+                return True
             finally:
+                if proc is not None and proc.poll() is None:
+                    proc.kill()
                 if wav:
                     try:
                         os.unlink(wav)
