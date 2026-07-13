@@ -118,18 +118,42 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -dc '0-9')
 fi
 VRAM=${VRAM:-0}
+# AMD: the kernel amdgpu driver exposes VRAM via sysfs — no extra driver needed (verified live
+# on an RX 7900 XTX: ollama's bundled ROCm just works). Without this, AMD boxes read VRAM=0 and
+# a 24GB card would get the CPU-fallback model.
+if [ "$VRAM" -eq 0 ] && [ "$VENDOR" = amd ]; then
+    for f in /sys/class/drm/card*/device/mem_info_vram_total; do
+        [ -r "$f" ] || continue
+        v=$(( $(cat "$f") / 1048576 ))
+        [ "$v" -gt "$VRAM" ] && VRAM=$v
+    done
+fi
 if   [ "$VRAM" -ge 24000 ]; then MODEL="qwen3:32b"
 elif [ "$VRAM" -ge 16000 ]; then MODEL="qwen3:14b"
 elif [ "$VRAM" -ge 12000 ]; then MODEL="qwen3:14b"
 elif [ "$VRAM" -ge 6000  ]; then MODEL="qwen3:8b"
 elif [ "$VENDOR" = nvidia ]; then MODEL="qwen3:8b"    # NVIDIA present, driver not loaded yet -> assume 8b
-else                              MODEL="llama3.2:3b" # AMD/Intel/none -> CPU (degraded, warn user)
+else                              MODEL="llama3.2:3b" # Intel/none -> CPU (degraded, warn user)
 fi
+
 log "VRAM=${VRAM}MiB vendor=${VENDOR} -> tier model=${MODEL}"
 
 # --- ensure Ollama is up ---
 systemctl start ollama.service 2>/dev/null || true
 for _ in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
+
+# --- AMD with a big-VRAM tier: only commit to it if ollama can ACTUALLY offload to this GPU —
+#     ROCm supports recent Radeons (RDNA2/3+), but on an older card the big model would grind
+#     on the CPU. Warm the baked starter and ask the daemon whether any of it landed in VRAM.
+#     (Must run AFTER the daemon is up, or the probe would falsely downgrade the tier.) ---
+if [ "$VENDOR" = amd ] && [ "$MODEL" != "llama3.2:3b" ]; then
+    curl -sf --max-time 120 http://127.0.0.1:11434/api/generate \
+        -d "{\"model\":\"llama3.2:3b\",\"prompt\":\"hi\",\"options\":{\"num_predict\":1}}" >/dev/null 2>&1 || true
+    if ! curl -sf http://127.0.0.1:11434/api/ps 2>/dev/null | grep -q '"size_vram":[1-9]'; then
+        log "AMD GPU present but ollama reports no VRAM offload (ROCm unsupported card?) — staying on the CPU model"
+        MODEL="llama3.2:3b"
+    fi
+fi
 
 have_model() { ollama list 2>/dev/null | grep -q "${1%%:*}"; }
 
