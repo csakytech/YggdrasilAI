@@ -237,6 +237,15 @@ _REPEAT_RE = re.compile(
     re.I,
 )
 
+# "Open ThorAI/assistant/voice settings" -> the ThorAI Settings window. Scoped to the
+# assistant's own settings so it never shadows "open settings" (GNOME's system settings).
+_SETTINGS_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?(?:can you |could you |please )?"
+    r"(?:open|show|launch|bring up|pull up|go to)\s+"
+    r"(?:the\s+)?(?:thor\s?ai|thoros|assistant|jarvis|voice)\s+settings\b",
+    re.I,
+)
+
 # "Open google and search for X" (or "…and look up X") -> ONE app.search, deterministically.
 # Left to the planner this becomes browse-google + search — two firefox invocations that race
 # the browser's first startup, and the second (the actual search) gets silently dropped.
@@ -1086,6 +1095,10 @@ class Orchestrator:
             self._publish("Scheduling…")
             task = Task(action="schedule.add", agent="schedule", params={"argument": goal})
             return self._render(task, await self._dispatch(task))
+        if _SETTINGS_RE.match(goal.strip()):  # "open ThorAI settings" -> the settings window
+            self._publish("Opening settings…")
+            task = Task(action="app.launch", agent="app", params={"argument": "thorai settings"})
+            return self._render(task, await self._dispatch(task))
         oas = _OPEN_AND_SEARCH_RE.match(goal.strip())
         if oas:  # "open google and search for X" -> one search (browse+search would race firefox)
             self._publish("Searching…")
@@ -1282,8 +1295,39 @@ class Orchestrator:
             result = await self.bus.request(task.agent, task)
         return result
 
-    @staticmethod
-    def _render(task: Task, result: Result) -> str:
+    # Action CONFIRMATIONS whose spoken echo the verbosity setting may shorten or silence. A verb
+    # here means "when this succeeds, the reply is just telling the user I did what they said" —
+    # so 'simple' can shrink it and 'off' can drop it. Everything NOT listed (research/weather,
+    # help, memory recall, explain, list contents, anything asking a question) is always spoken
+    # in full. `action` (agent.verb) is matched first so a verb like 'open' is scoped per agent.
+    _CONFIRM_BRIEF = {
+        "app.launch": "Opening.", "app.close": "Closing.", "app.browse": "Opening.",
+        "app.search": "Searching.", "app.write_document": "Done.",
+        "file.open": "Opening.", "file.create_folder": "Done.", "file.create_file": "Done.",
+        "file.write_file": "Done.", "file.delete": "Done.", "file.move": "Done.",
+        "file.rename": "Done.", "file.confirm": "Done.",
+        "software.install": "Done.", "software.confirm": "Done.",
+    }
+
+    def _verbosity_adjust(self, action: str, verb: str, data: dict) -> str:
+        """Apply the reply-verbosity setting to a confirmation. Confirmations are identified by
+        an explicit ``brief`` from the agent, or by being a known confirm action. Anything a
+        question ('await_confirm'), a not-found ('missing'), or a fallback ('assist') is NEVER
+        shortened — those must always be heard in full regardless of the setting."""
+        speech = data["speech"]
+        if data.get("await_confirm") or data.get("missing") or data.get("assist"):
+            return speech
+        brief = data.get("brief") or self._CONFIRM_BRIEF.get(action)
+        if brief is None:
+            return speech  # not a confirmation — informational/question/error, untouched
+        level = config.get_verbosity()
+        if level == "simple":
+            return brief
+        if level == "off":
+            return ""  # silent confirmation (say("") is a no-op; nothing dead-ends on this)
+        return speech
+
+    def _render(self, task: Task, result: Result) -> str:
         _journal_task(task, result)  # remember work done — every routed + planned task flows here
         verb = task.action.split(".")[-1]
         data = result.data if isinstance(result.data, dict) else {}
@@ -1292,7 +1336,7 @@ class Orchestrator:
             # Generic hook: any module can return a ready-to-speak string, so the orchestrator
             # never needs to know a new agent's verbs (see docs/MODULES.md).
             if data.get("speech"):
-                return data["speech"]
+                return self._verbosity_adjust(task.action, verb, data)
             if verb == "remember":
                 return "I'll remember that."
             if verb == "forget":

@@ -76,6 +76,35 @@ def set_search_engine(engine: str) -> None:
     _save(cfg)
 
 
+def get_verbosity() -> str:
+    """How chatty Jarvis is when CONFIRMING an action. 'full' = a natural sentence ("Opening a
+    browser and searching for robots"); 'simple' = a short word ("Searching."); 'off' = silent
+    for confirmations. This governs ONLY action confirmations — questions, errors, and
+    informational answers (weather, help, research) are always spoken in full."""
+    v = (os.environ.get("YGGDRASIL_VERBOSITY") or _raw().get("verbosity") or "full").lower()
+    return v if v in ("full", "simple", "off") else "full"
+
+
+def set_verbosity(level: str) -> None:
+    cfg = _raw()
+    cfg["verbosity"] = level if level in ("full", "simple", "off") else "full"
+    _save(cfg)
+
+
+def get_duplex() -> bool:
+    """Full-duplex conversation (interrupt Jarvis mid-sentence). Env overrides config."""
+    env = os.environ.get("YGGDRASIL_DUPLEX")
+    if env is not None:
+        return env != "0"
+    return bool(_raw().get("duplex", True))
+
+
+def set_duplex(on: bool) -> None:
+    cfg = _raw()
+    cfg["duplex"] = bool(on)
+    _save(cfg)
+
+
 def get_chat_pref() -> tuple[str, str]:
     """The Chat window's remembered setup: (mode, model). mode is 'assistant' (route through
     the agents — types like the voice loop) or 'chat' (pure conversation with the local model);

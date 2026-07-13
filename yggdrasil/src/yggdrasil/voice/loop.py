@@ -117,9 +117,9 @@ class VoiceAssistant:
         self.vad_energy = float(os.environ.get("YGGDRASIL_VAD_ENERGY", DEF_VAD_ENERGY))
         self.wake_mode = config.get_wake_mode()  # "name" (say the name) | "model" (openWakeWord)
         # Full duplex: keep listening WHILE speaking, so the user can interrupt ("barge in")
-        # and follow-ups flow like a real conversation. YGGDRASIL_DUPLEX=0 restores the old
-        # strictly-turn-taking behavior.
-        self.duplex = os.environ.get("YGGDRASIL_DUPLEX", "1") != "0"
+        # and follow-ups flow like a real conversation. Settings toggle (config) with the
+        # YGGDRASIL_DUPLEX env as an override; =0 restores strict turn-taking.
+        self.duplex = config.get_duplex()
         self.barge_mult = float(os.environ.get("YGGDRASIL_BARGE_MULT", "2.0"))
         self.wake = self.wake_key = None
         if self.wake_mode == "model":

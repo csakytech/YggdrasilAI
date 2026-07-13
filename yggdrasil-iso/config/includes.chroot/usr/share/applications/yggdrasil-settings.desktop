@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ThorAI Settings
+Comment=How Jarvis behaves — reply style, interruptions, web search
+Exec=yggdrasil-settings
+Terminal=false
+Categories=Settings;Utility;
+Keywords=yggdrasil;jarvis;thorai;settings;preferences;voice;

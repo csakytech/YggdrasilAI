@@ -80,3 +80,13 @@ def test_chat_pref_roundtrip(monkeypatch, tmp_path):
     assert config.get_chat_pref() == ("chat", "qwen3:14b")
     config.set_chat_pref("bogus-mode", "")
     assert config.get_chat_pref()[0] == "assistant"        # invalid mode falls back
+
+
+def test_settings_route():
+    from yggdrasil.core.orchestrator import _SETTINGS_RE
+    for p in ("open thorai settings", "open the assistant settings", "show voice settings",
+              "Jarvis, open thor ai settings", "bring up jarvis settings", "open thoros settings"):
+        assert _SETTINGS_RE.match(p), p
+    for p in ("open settings", "open system settings", "open the settings app",
+              "change my settings for the terminal"):
+        assert not _SETTINGS_RE.match(p), p

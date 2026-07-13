@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# ThorAI Settings (GTK): how Jarvis behaves — reply style, interruptions, web search.
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+[ -f /etc/yggdrasil/model.env ] && . /etc/yggdrasil/model.env
+export YGGDRASIL_NAME=${YGGDRASIL_NAME:-Jarvis}
+exec /opt/yggdrasil/venv/bin/python -m yggdrasil.ui.settings "$@"
