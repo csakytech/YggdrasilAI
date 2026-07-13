@@ -76,6 +76,22 @@ def set_search_engine(engine: str) -> None:
     _save(cfg)
 
 
+def get_chat_pref() -> tuple[str, str]:
+    """The Chat window's remembered setup: (mode, model). mode is 'assistant' (route through
+    the agents — types like the voice loop) or 'chat' (pure conversation with the local model);
+    model '' = whatever the launcher's default model is."""
+    d = _raw()
+    mode = d.get("chat_mode") or "assistant"
+    return (mode if mode in ("assistant", "chat") else "assistant", d.get("chat_model") or "")
+
+
+def set_chat_pref(mode: str, model: str) -> None:
+    cfg = _raw()
+    cfg["chat_mode"] = mode if mode in ("assistant", "chat") else "assistant"
+    cfg["chat_model"] = model or ""
+    _save(cfg)
+
+
 def get_voice() -> str:
     """The chosen voice id (e.g. 'en_US-ryan-high'); '' = whatever the launcher provides."""
     return _raw().get("voice") or ""

@@ -70,3 +70,13 @@ def test_default_search_engine_is_captcha_free(monkeypatch, tmp_path):
     assert config.get_search_engine() == "google"
     config.set_search_engine("something-weird")
     assert config.get_search_engine() == "duckduckgo"
+
+
+def test_chat_pref_roundtrip(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    from yggdrasil.core import config
+    assert config.get_chat_pref() == ("assistant", "")     # sane default
+    config.set_chat_pref("chat", "qwen3:14b")
+    assert config.get_chat_pref() == ("chat", "qwen3:14b")
+    config.set_chat_pref("bogus-mode", "")
+    assert config.get_chat_pref()[0] == "assistant"        # invalid mode falls back

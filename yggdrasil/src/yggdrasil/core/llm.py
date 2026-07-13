@@ -67,6 +67,16 @@ class OllamaProvider(LLMProvider):
         self.keep_alive: Any = None
 
     async def generate(self, *, system, prompt, schema=None, temperature=0.2):
+        return await self._request(
+            [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+            schema=schema, temperature=temperature)
+
+    async def chat(self, *, messages, temperature=0.7):
+        """Multi-turn conversation — the whole message history each call (the Chat window's
+        'just talk' mode). Same think-off, timeout, and retry behavior as generate()."""
+        return await self._request(list(messages), schema=None, temperature=temperature)
+
+    async def _request(self, messages, *, schema, temperature):
         import json
 
         import httpx
@@ -75,10 +85,7 @@ class OllamaProvider(LLMProvider):
             "model": self.model,
             "stream": False,
             "options": {"temperature": temperature},
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
+            "messages": messages,
         }
         if self.keep_alive is not None:
             payload["keep_alive"] = self.keep_alive
