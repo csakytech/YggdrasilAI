@@ -1,11 +1,12 @@
 {
-  "version": "1.2.0",
-  "tag": "v1.2.0",
+  "version": "1.4.0",
+  "tag": "v1.4.0",
   "changelog": [
-    "🛠️ Software by voice — \"I want to make a video, what should I install?\" Jarvis researches, recommends, confirms, installs it from the Debian repos, and offers to open it. Or just say \"install OBS Studio\".",
-    "🔓 No login, no screen lock — the machine boots to a ready desktop and never locks you out (re-enable any time in Settings → Privacy).",
-    "⚡ First reply in seconds — the AI model is warmed into the GPU at boot instead of cold-loading on your first command.",
-    "🔎 \"Open Google and search for X\" now actually searches; web search defaults to DuckDuckGo (Google walls our voice browser behind CAPTCHAs — a locked door for hands-free users).",
-    "🔧 Self-update migrations now really run (a permissions bug had silently skipped them since v0.8) — updating to 1.2 applies the boot preload and no-lock defaults to your existing install too."
+    "🗣️ Full-duplex conversation — interrupt Jarvis mid-sentence and he stops and listens; follow-ups flow without the wake word.",
+    "🔁 \"Repeat that\" + short-term memory — he can re-say his last reply, and \"tell me more\" finally works.",
+    "💬 A real chat window — 'Just chat' mode is a private, local ChatGPT-style conversation with any installed model. Nothing leaves your machine.",
+    "⚙️ ThorAI Settings — choose how chatty confirmations are (Full/Simple/Off), toggle interruptions, pick your search engine. Say \"open ThorAI settings\".",
+    "🔴 AMD Radeon support out of the box — VRAM detected, right model tier picked, zero driver setup (verified on an RX 7900 XTX).",
+    "📦 New ISOs ship with a starter AI baked in — the assistant answers from first boot with no internet at all."
   ]
 }
