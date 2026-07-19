@@ -33,6 +33,9 @@ class SystemAgent(BaseAgent):
         'how much memory does this system have -> {"steps":[{"action":"system.info","argument":"memory"}]}',
         'what cpu is in this machine -> {"steps":[{"action":"system.info","argument":"cpu"}]}',
         'what graphics card do I have -> {"steps":[{"action":"system.info","argument":"gpu"}]}',
+        'reboot this computer -> {"steps":[{"action":"system.power","argument":"reboot"}]}',
+        'shut down the machine -> {"steps":[{"action":"system.power","argument":"shutdown"}]}',
+        'put the computer to sleep -> {"steps":[{"action":"system.power","argument":"suspend"}]}',
         'stop asking for confirmation -> {"steps":[{"action":"system.autonomy","argument":"on"}]}',
         'enable autonomous mode -> {"steps":[{"action":"system.autonomy","argument":"on"}]}',
         'be careful again -> {"steps":[{"action":"system.autonomy","argument":"off"}]}',
@@ -44,8 +47,16 @@ class SystemAgent(BaseAgent):
         "running": Capability("running", dangerous=False, description="Top running programs"),
         "info": Capability("info", dangerous=False,
                            description="Answer questions about this machine: IPs, memory, CPU, GPU, hostname, OS"),
+        "power": Capability("power", dangerous=False,
+                            description="Reboot, shut down, or suspend the computer (always confirms first)"),
+        "confirm": Capability("confirm", dangerous=False, description="Carry out the staged power action after a spoken yes"),
+        "cancel": Capability("cancel", dangerous=False, description="Cancel the staged power action"),
         "autonomy": Capability("autonomy", dangerous=False, description="Turn autonomous (no-confirmation) mode on or off"),
     }
+
+    def __init__(self, bus, perms) -> None:
+        super().__init__(bus, perms)
+        self._pending_power: str | None = None  # a power action awaiting yes/no
 
     async def _execute(self, verb: str, params: dict[str, Any]) -> Any:
         if verb == "time":
@@ -61,12 +72,54 @@ class SystemAgent(BaseAgent):
                     else "Nothing notable is running."}
         if verb == "info":
             return {"speech": await self._info((params.get("argument") or "").strip())}
+        if verb == "power":
+            return self._stage_power((params.get("argument") or "").strip().lower())
+        if verb == "confirm":
+            return self._run_power()
+        if verb == "cancel":
+            had = self._pending_power is not None
+            self._pending_power = None
+            return {"speech": "Okay, I won't." if had else "There's nothing to confirm."}
         if verb == "autonomy":
-            on = (params.get("argument") or "").strip().lower() in ("on", "true", "yes", "enable", "enabled", "start")
-            self.perms.set_mode("autonomous" if on else "guarded")
-            return {"speech": "Autonomous mode on — I won't ask for confirmations." if on
-                    else "Back to careful mode — I'll confirm risky actions."}
+            # HARDENED: a planner misroute once landed "can you reboot this computer" here and
+            # silently flipped the security mode. Only clean on/off tokens may toggle it now.
+            arg = (params.get("argument") or "").strip().lower()
+            if arg in ("on", "true", "yes", "enable", "enabled", "start"):
+                self.perms.set_mode("autonomous")
+                return {"speech": "Autonomous mode on — I won't ask for confirmations."}
+            if arg in ("off", "false", "no", "disable", "disabled", "stop", ""):
+                self.perms.set_mode("guarded")
+                return {"speech": "Back to careful mode — I'll confirm risky actions."}
+            return {"speech": "If you want me to change autonomy, say “enable autonomous mode” "
+                              "or “be careful again”.", "assist": True}
         raise ValueError(f"unhandled verb '{verb}'")
+
+    # ---- power (reboot / shutdown / suspend), always behind a spoken yes/no --------------------
+    _POWER_WORDS = {
+        "reboot": ("reboot", "Reboot the computer now? Say yes or no.", "Rebooting now — see you in a minute."),
+        "shutdown": ("poweroff", "Shut the computer down now? Say yes or no.", "Shutting down — goodbye."),
+        "suspend": ("suspend", "Put the computer to sleep now? Say yes or no.", "Going to sleep."),
+    }
+
+    def _stage_power(self, arg: str) -> dict:
+        kind = ("suspend" if re.search(r"suspend|sleep", arg)
+                else "shutdown" if re.search(r"shut|power ?off|power down|turn off", arg)
+                else "reboot")
+        self._pending_power = kind
+        return {"await_confirm": True, "agent": "system", "speech": self._POWER_WORDS[kind][1]}
+
+    def _run_power(self) -> dict:
+        kind, self._pending_power = self._pending_power, None
+        if not kind:
+            return {"speech": "There's nothing waiting to confirm."}
+        action, _q, bye = self._POWER_WORDS[kind]
+        try:
+            # From the user's own desktop session, logind allows these without root.
+            subprocess.Popen(["systemctl", action],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"speech": bye}
+        except Exception as e:  # noqa: BLE001
+            return {"speech": f"I couldn't {kind} — {e!r}", "assist": True}
 
     # ---- the system-info library --------------------------------------------------------------
     @staticmethod

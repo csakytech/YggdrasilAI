@@ -237,6 +237,22 @@ _REPEAT_RE = re.compile(
     re.I,
 )
 
+# "Reboot this computer / shut down / put it to sleep" -> system.power, deterministically —
+# behind a spoken yes/no. Left to the planner this misrouted into system.autonomy and flipped
+# the security mode (live bug). Excludes "restart yourself/jarvis" (the assistant, not the
+# machine) and app restarts ("restart firefox").
+_POWER_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?(?:can you |could you |please |go ahead and )*"
+    r"(?!.*\b(?:yourself|jarvis|assistant|firefox|browser|app|window|router|modem|phone)\b)"
+    r"(?:"
+    r"(?:reboot|restart|shut ?down|power (?:off|down)|turn off|suspend)\s+(?:th(?:is|e|at)\s+)?"
+    r"(?:computer|machine|system|pc|box)\b"
+    r"|put (?:th(?:is|e)\s+)?(?:computer|machine|system|pc)\s+to sleep\b"
+    r"|(?:reboot|shut ?down)\s*$"
+    r")",
+    re.I,
+)
+
 # Machine questions ("what's my local IP", "how much memory does this system have", "find out
 # the external IP") -> system.info, deterministically. Left to the planner these misroute
 # (the live bug: "what is my local IP" got answered with the top running programs) — and an
@@ -1115,6 +1131,13 @@ class Orchestrator:
             self._publish("Scheduling…")
             task = Task(action="schedule.add", agent="schedule", params={"argument": goal})
             return self._render(task, await self._dispatch(task))
+        if _POWER_RE.match(goal.strip()):  # "reboot this computer" -> confirm, then really do it
+            self._publish("")
+            task = Task(action="system.power", agent="system", params={"argument": goal.lower()})
+            result = await self._dispatch(task)
+            if isinstance(result.data, dict) and result.data.get("await_confirm"):
+                self._pending_confirm = result.data.get("agent")
+            return self._render(task, result)
         if _SYSINFO_RE.match(goal.strip()):  # "what's my local IP" -> real commands, never the LLM
             self._publish("Checking…")
             task = Task(action="system.info", agent="system", params={"argument": goal})

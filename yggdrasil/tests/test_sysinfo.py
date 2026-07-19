@@ -95,3 +95,74 @@ def test_disk_no_longer_crashes():
 
 def test_os_mentions_thoros():
     assert "ThorOS" in SystemAgent._os()
+
+
+# ---- power: "reboot this computer" (live bug: misrouted into autonomy and flipped the
+# security mode). Always behind a spoken yes/no; never for "restart yourself" or apps. ----
+
+def test_power_routes():
+    from yggdrasil.core.orchestrator import _POWER_RE
+    for p in ("reboot this computer", "Jarvis, can you reboot this computer",
+              "restart the computer", "shut down the machine", "please shut down this pc",
+              "power off the system", "put the computer to sleep", "reboot", "shutdown"):
+        assert _POWER_RE.match(p), p
+    for p in ("restart yourself", "Jarvis, restart yourself", "restart firefox",
+              "restart the browser", "reboot the router", "turn off the lights",
+              "shut down the app", "close the window"):
+        assert not _POWER_RE.match(p), p
+
+
+def test_power_waits_for_confirm(monkeypatch):
+    import yggdrasil.agents.system_agent as sa
+    from yggdrasil.core.bus import LocalBus
+    from yggdrasil.core.permissions import AuthChallenge, DefaultPolicy, PermissionManager, UserChannel
+
+    class _Ch(UserChannel):
+        async def present_challenge(self, challenge: AuthChallenge) -> None:  # pragma: no cover
+            pass
+
+    ag = sa.SystemAgent(LocalBus(), PermissionManager(DefaultPolicy(), _Ch()))
+    ran = []
+    monkeypatch.setattr(sa.subprocess, "Popen", lambda argv, **kw: ran.append(argv))
+
+    out = ag._stage_power("can you reboot this computer")
+    assert out.get("await_confirm") and out.get("agent") == "system"
+    assert "yes or no" in out["speech"].lower()
+    assert ran == []  # nothing executed before the yes
+
+    done = ag._run_power()
+    assert ran == [["systemctl", "reboot"]]
+    assert "reboot" in done["speech"].lower()
+
+
+def test_power_kinds(monkeypatch):
+    import yggdrasil.agents.system_agent as sa
+    from yggdrasil.core.bus import LocalBus
+    from yggdrasil.core.permissions import AuthChallenge, DefaultPolicy, PermissionManager, UserChannel
+
+    class _Ch(UserChannel):
+        async def present_challenge(self, challenge: AuthChallenge) -> None:  # pragma: no cover
+            pass
+
+    ag = sa.SystemAgent(LocalBus(), PermissionManager(DefaultPolicy(), _Ch()))
+    assert ag._stage_power("shut down the machine")["speech"].lower().startswith("shut")
+    assert ag._pending_power == "shutdown"
+    assert "sleep" in ag._stage_power("put the computer to sleep")["speech"].lower()
+    assert ag._pending_power == "suspend"
+
+
+@pytest.mark.asyncio
+async def test_autonomy_never_toggled_by_sentences():
+    import yggdrasil.agents.system_agent as sa
+    from yggdrasil.core.bus import LocalBus
+    from yggdrasil.core.permissions import AuthChallenge, DefaultPolicy, PermissionManager, UserChannel
+
+    class _Ch(UserChannel):
+        async def present_challenge(self, challenge: AuthChallenge) -> None:  # pragma: no cover
+            pass
+
+    ag = sa.SystemAgent(LocalBus(), PermissionManager(DefaultPolicy(), _Ch()))
+    out = await ag._execute("autonomy", {"argument": "can you reboot this computer"})
+    assert out.get("assist")  # helped onward, mode untouched, no "back to careful mode" loop
+    out = await ag._execute("autonomy", {"argument": "on"})
+    assert "autonomous mode on" in out["speech"].lower()
