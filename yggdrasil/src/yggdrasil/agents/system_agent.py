@@ -113,13 +113,21 @@ class SystemAgent(BaseAgent):
         if not kind:
             return {"speech": "There's nothing waiting to confirm."}
         action, _q, bye = self._POWER_WORDS[kind]
-        try:
-            # From the user's own desktop session, logind allows these without root.
-            subprocess.Popen(["systemctl", action],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return {"speech": bye}
-        except Exception as e:  # noqa: BLE001
-            return {"speech": f"I couldn't {kind} — {e!r}", "assist": True}
+        # The root helper first (works from ANY context — the live bug: plain systemctl only
+        # works inside an active logind session, so a reboot 'succeeded' silently doing
+        # nothing). Plain systemctl stays as the fallback for installs without the helper.
+        errs = []
+        for cmd in (["sudo", "-n", "/usr/local/sbin/yggdrasil-power", action],
+                    ["systemctl", action]):
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                if r.returncode == 0:
+                    return {"speech": bye}
+                errs.append((r.stderr or r.stdout or "").strip().splitlines()[-1:] or ["failed"])
+            except Exception as e:  # noqa: BLE001
+                errs.append([repr(e)])
+        detail = errs[-1][0][:120] if errs else "unknown error"
+        return {"speech": f"I couldn't {kind} the computer — {detail}", "assist": True}
 
     # ---- the system-info library --------------------------------------------------------------
     @staticmethod

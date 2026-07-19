@@ -1,0 +1,4 @@
+# Let the assistant reboot/power off/suspend via the validated helper (one whitelisted verb;
+# the agent always confirms by voice first). Members of the sudo group only. Same trust
+# pattern as /etc/sudoers.d/yggdrasil-update.
+%sudo ALL=(root) NOPASSWD: /usr/local/sbin/yggdrasil-power reboot, /usr/local/sbin/yggdrasil-power poweroff, /usr/local/sbin/yggdrasil-power suspend

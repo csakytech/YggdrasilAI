@@ -1,0 +1,12 @@
+#!/bin/bash
+# Reboot / power off / suspend the machine for the voice assistant. Invoked via `sudo -n`
+# (/etc/sudoers.d/yggdrasil-power, %sudo NOPASSWD — the yggdrasil-update trust pattern).
+# Exists because plain `systemctl reboot` only works from an ACTIVE logind session — an
+# assistant process started any other way (SSH debugging, service restart) gets an auth
+# prompt and silently does nothing. One strictly-validated verb, nothing else.
+set -u
+
+case "${1:-}" in
+    reboot|poweroff|suspend) exec systemctl "$1" ;;
+    *) echo "usage: yggdrasil-power reboot|poweroff|suspend" >&2; exit 2 ;;
+esac

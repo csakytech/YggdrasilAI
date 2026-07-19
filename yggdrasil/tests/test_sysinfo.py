@@ -123,7 +123,12 @@ def test_power_waits_for_confirm(monkeypatch):
 
     ag = sa.SystemAgent(LocalBus(), PermissionManager(DefaultPolicy(), _Ch()))
     ran = []
-    monkeypatch.setattr(sa.subprocess, "Popen", lambda argv, **kw: ran.append(argv))
+
+    class _Done:
+        returncode = 0
+        stderr = stdout = ""
+
+    monkeypatch.setattr(sa.subprocess, "run", lambda argv, **kw: ran.append(argv) or _Done())
 
     out = ag._stage_power("can you reboot this computer")
     assert out.get("await_confirm") and out.get("agent") == "system"
@@ -131,8 +136,33 @@ def test_power_waits_for_confirm(monkeypatch):
     assert ran == []  # nothing executed before the yes
 
     done = ag._run_power()
-    assert ran == [["systemctl", "reboot"]]
+    # the root helper is tried FIRST — plain systemctl silently no-ops outside an active
+    # logind session (the live bug: "rebooting now" spoken, nothing happened)
+    assert ran == [["sudo", "-n", "/usr/local/sbin/yggdrasil-power", "reboot"]]
     assert "reboot" in done["speech"].lower()
+
+
+def test_power_falls_back_and_reports_honestly(monkeypatch):
+    import yggdrasil.agents.system_agent as sa
+    from yggdrasil.core.bus import LocalBus
+    from yggdrasil.core.permissions import AuthChallenge, DefaultPolicy, PermissionManager, UserChannel
+
+    class _Ch(UserChannel):
+        async def present_challenge(self, challenge: AuthChallenge) -> None:  # pragma: no cover
+            pass
+
+    class _Fail:
+        returncode = 1
+        stdout = ""
+        stderr = "Interactive authentication required."
+
+    ag = sa.SystemAgent(LocalBus(), PermissionManager(DefaultPolicy(), _Ch()))
+    calls = []
+    monkeypatch.setattr(sa.subprocess, "run", lambda argv, **kw: calls.append(argv) or _Fail())
+    ag._pending_power = "reboot"
+    out = ag._run_power()
+    assert len(calls) == 2  # helper tried, systemctl fallback tried
+    assert out.get("assist") and "couldn't reboot" in out["speech"].lower()
 
 
 def test_power_kinds(monkeypatch):

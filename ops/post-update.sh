@@ -56,6 +56,14 @@ if [ -f "$PRE_SRC" ] && [ -f "$PRE_SVC" ]; then
     systemctl start --no-block yggdrasil-preload.service >/dev/null 2>&1 || true
 fi
 
+# --- v1.4.1: power helper — reboot/shutdown by voice from any process context -----------------
+PWR_SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/local/sbin/yggdrasil-power
+PWR_SUDO=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/etc/sudoers.d/yggdrasil-power
+[ -f "$PWR_SRC" ] && install -m 755 "$PWR_SRC" /usr/local/sbin/yggdrasil-power || true
+if [ -f "$PWR_SUDO" ] && [ ! -f /etc/sudoers.d/yggdrasil-power ]; then
+    install -m 440 "$PWR_SUDO" /etc/sudoers.d/yggdrasil-power || true
+fi
+
 # --- v1.4: ThorAI Settings window — install its launcher + app entry on existing installs -----
 SET_SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/local/bin/yggdrasil-settings
 SET_DESK=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/share/applications/yggdrasil-settings.desktop

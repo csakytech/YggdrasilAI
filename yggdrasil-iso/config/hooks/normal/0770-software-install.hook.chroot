@@ -3,8 +3,8 @@
 # and its sudoers drop-in (must be 0440 or sudo ignores it). Dev edition: create the dev-mode
 # flag that switches on the QA transcript (core/transcript.py) — NEVER present on public ISOs.
 set -e
-chmod 0755 /usr/local/sbin/yggdrasil-install /usr/local/bin/yggdrasil-preload /usr/local/bin/yggdrasil-settings
-chmod 0440 /etc/sudoers.d/yggdrasil-install
+chmod 0755 /usr/local/sbin/yggdrasil-install /usr/local/sbin/yggdrasil-power /usr/local/bin/yggdrasil-preload /usr/local/bin/yggdrasil-settings
+chmod 0440 /etc/sudoers.d/yggdrasil-install /etc/sudoers.d/yggdrasil-power
 systemctl enable yggdrasil-preload.service 2>/dev/null || true
 
 . /etc/yggdrasil-edition.env 2>/dev/null || YGG_EDITION=online
