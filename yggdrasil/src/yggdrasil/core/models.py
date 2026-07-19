@@ -38,6 +38,7 @@ ROLES: dict[str, str] = {
     "reasoner": "reasoning, conversation, and working out hard requests",
     "coder": "writing programs and terminal commands",
     "writer": "writing documents and briefings",
+    "vision": "looking at the screen and describing what's on it",
 }
 
 # Spoken names for roles -> canonical role. The orchestrator + ModelAgent share this.
@@ -49,6 +50,8 @@ ROLE_ALIASES: dict[str, str] = {
     "development": "coder", "python": "coder",
     "writer": "writer", "writing": "writer", "documents": "writer", "docs": "writer",
     "briefings": "writer",
+    "vision": "vision", "sight": "vision", "seeing": "vision", "eyes": "vision",
+    "screen": "vision", "visual": "vision",
 }
 
 # Known-good specialist suggestions by VRAM floor (MiB), per role. Mirrors the spirit of
@@ -60,9 +63,17 @@ SUGGESTED: dict[str, list[tuple[int, str]]] = {
         (6000, "qwen2.5-coder:7b"),
         (0, "qwen2.5-coder:3b"),
     ],
-    # reasoner/writer: the general MODEL_TIERS default is already the right call; no
-    # specialist earns its VRAM there yet.
+    # vision needs a MULTIMODAL model (the general text default can't see). qwen2.5-vl is the
+    # strong small VLM; llava is the lighter fallback. Tags [VERIFY] at release time.
+    "vision": [
+        (12000, "qwen2.5vl:7b"),
+        (6000, "qwen2.5vl:3b"),
+        (0, "llava:7b"),
+    ],
 }
+# The role whose model must be MULTIMODAL. suggest("vision") never collapses onto the text
+# default — a text model would "describe the screen" by hallucinating.
+VISION_DEFAULT = "qwen2.5vl:3b"
 
 
 def _cfg_path() -> Path:
@@ -85,6 +96,10 @@ class RoleProvider(LLMProvider):
     async def generate(self, *, system, prompt, schema=None, temperature=0.2) -> LLMResponse:
         return await self.manager._provider_for(self.role).generate(
             system=system, prompt=prompt, schema=schema, temperature=temperature)
+
+    async def describe_image(self, *, system, prompt, image_b64, temperature=0.2) -> LLMResponse:
+        return await self.manager._provider_for(self.role).describe_image(
+            system=system, prompt=prompt, image_b64=image_b64, temperature=temperature)
 
 
 class ModelManager:
@@ -119,8 +134,15 @@ class ModelManager:
         return {r: roles.get(r) for r in ROLES}
 
     def resolved(self, role: str) -> str:
-        """The model that currently answers this role."""
-        return (self._raw().get("roles") or {}).get(role) or self.default_model
+        """The model that currently answers this role. Vision is special: it MUST be a
+        multimodal model, so it never falls back to the (text-only) default — an unbound
+        vision role resolves to the vision default instead."""
+        bound = (self._raw().get("roles") or {}).get(role)
+        if bound:
+            return bound
+        if role == "vision":
+            return VISION_DEFAULT
+        return self.default_model
 
     def bind(self, role: str, model: str) -> None:
         cfg = self._raw()

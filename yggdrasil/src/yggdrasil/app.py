@@ -22,6 +22,7 @@ from .agents.scheduler_agent import SchedulerAgent
 from .agents.security_agent import SecurityAgent
 from .agents.software_agent import SoftwareAgent
 from .agents.system_agent import SystemAgent
+from .agents.vision_agent import VisionAgent
 from .agents.task_agent import TaskAgent
 from .agents.update_agent import UpdateAgent
 from .agents.voice_agent import VoiceAgent
@@ -78,6 +79,8 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     registry.register(WriterAgent(bus, perms))
     registry.register(ResearchAgent(bus, perms, llm))
     registry.register(SoftwareAgent(bus, perms))
+    registry.register(VisionAgent(bus, perms,
+                                  models.get("vision") if models else None, models))
     registry.register(SchedulerAgent(bus, perms, llm))
     market = MarketAgent(bus, perms, llm)
     registry.register(market)

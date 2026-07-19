@@ -3,3 +3,7 @@ task-gnome-desktop
 network-manager
 firmware-linux
 sudo
+# Screen capture for the Vision agent (task-gnome-desktop usually pulls gnome-screenshot, but
+# name it explicitly so "what am I looking at" always has a capture tool; grim covers Wayland).
+gnome-screenshot
+grim

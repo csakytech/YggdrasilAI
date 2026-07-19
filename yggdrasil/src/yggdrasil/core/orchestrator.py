@@ -237,6 +237,24 @@ _REPEAT_RE = re.compile(
     re.I,
 )
 
+# "What am I looking at / what's on my screen / read the screen / what does this say" -> the
+# Vision agent looks at the screen with a local multimodal model. Deterministic because the
+# text planner has no concept of sight and would either refuse or hallucinate. Excludes
+# file-reading ("read the file"), which is the Documents agent, and web pages.
+_VISION_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?(?:can you |could you |please )*"
+    r"(?!.*\b(?:file|document|folder|web ?page|website|url|out loud from)\b)"
+    r"(?:"
+    r"what(?:'s| is| am i| do you)?\s*(?:on |see|looking at|seeing)"
+    r"|what(?:'s| is| does)\b.{0,40}\b(?:on (?:the |my )?screen|this (?:say|mean|error|window|button|icon))"
+    r"|(?:read|look at|describe|check|see)\s+(?:the\s+|my\s+|this\s+)?screen"
+    r"|read (?:this|what'?s on screen|the error|it) (?:aloud|out loud|to me)?"
+    r"|(?:can you )?see (?:this|that|the screen|my screen|what'?s on|what this)"
+    r"|describe (?:what'?s on |)(?:the |my )?screen"
+    r")",
+    re.I,
+)
+
 # "Reboot this computer / shut down / put it to sleep" -> system.power, deterministically —
 # behind a spoken yes/no. Left to the planner this misrouted into system.autonomy and flipped
 # the security mode (live bug). Excludes "restart yourself/jarvis" (the assistant, not the
@@ -1130,6 +1148,10 @@ class Orchestrator:
         if _SCHEDULE_RE.match(goal.strip()):  # "remind me…" / "schedule…" / "every weekday at 9…"
             self._publish("Scheduling…")
             task = Task(action="schedule.add", agent="schedule", params={"argument": goal})
+            return self._render(task, await self._dispatch(task))
+        if _VISION_RE.match(goal.strip()):  # "what am I looking at" -> Jarvis looks at the screen
+            self._publish("Looking at the screen…")
+            task = Task(action="vision.look", agent="vision", params={"argument": goal})
             return self._render(task, await self._dispatch(task))
         if _POWER_RE.match(goal.strip()):  # "reboot this computer" -> confirm, then really do it
             self._publish("")

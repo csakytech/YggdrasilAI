@@ -71,6 +71,16 @@ class OllamaProvider(LLMProvider):
             [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
             schema=schema, temperature=temperature)
 
+    async def describe_image(self, *, system, prompt, image_b64, temperature=0.2):
+        """Vision: ask a multimodal model about an image (base64 PNG/JPEG, no data: prefix).
+        Ollama attaches images via the message's ``images`` array. Same timeout/retry path as
+        generate(); a non-vision model simply ignores the image, so the caller should route a
+        real VLM here (the 'vision' model role)."""
+        return await self._request(
+            [{"role": "system", "content": system},
+             {"role": "user", "content": prompt, "images": [image_b64]}],
+            schema=None, temperature=temperature)
+
     async def chat(self, *, messages, temperature=0.7):
         """Multi-turn conversation — the whole message history each call (the Chat window's
         'just talk' mode). Same think-off, timeout, and retry behavior as generate()."""
