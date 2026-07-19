@@ -237,6 +237,26 @@ _REPEAT_RE = re.compile(
     re.I,
 )
 
+# Machine questions ("what's my local IP", "how much memory does this system have", "find out
+# the external IP") -> system.info, deterministically. Left to the planner these misroute
+# (the live bug: "what is my local IP" got answered with the top running programs) — and an
+# LLM asked for an IP will happily invent one. Guarded against web-search phrasings.
+_SYSINFO_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?(?!.*\b(?:search|google|browse|look up|open|remind|schedule|every)\b)"
+    r"(?:can you |could you |please |find out |check |tell me |show me |do you know )*"
+    r"(?:what(?:'s| is| are)?|how much|how many|how big|how long|what kind of)?\s*"
+    r".{0,30}?\b(?:"
+    r"(?:local|internal|external|public|my)\s+ip\b|ip address\b|"
+    r"memory(?: does| is| in)|ram\b|"
+    r"cpu\b|processor\b|"
+    r"gpu\b|graphics card\b|video card\b|"
+    r"hostname\b|name of (?:this|the|my) (?:computer|machine)|"
+    r"kernel\b|battery\b|uptime\b|"
+    r"(?:which|what) (?:os|operating system|version of thoros)"
+    r")",
+    re.I,
+)
+
 # "Open ThorAI/assistant/voice settings" -> the ThorAI Settings window. Scoped to the
 # assistant's own settings so it never shadows "open settings" (GNOME's system settings).
 _SETTINGS_RE = re.compile(
@@ -1094,6 +1114,10 @@ class Orchestrator:
         if _SCHEDULE_RE.match(goal.strip()):  # "remind me…" / "schedule…" / "every weekday at 9…"
             self._publish("Scheduling…")
             task = Task(action="schedule.add", agent="schedule", params={"argument": goal})
+            return self._render(task, await self._dispatch(task))
+        if _SYSINFO_RE.match(goal.strip()):  # "what's my local IP" -> real commands, never the LLM
+            self._publish("Checking…")
+            task = Task(action="system.info", agent="system", params={"argument": goal})
             return self._render(task, await self._dispatch(task))
         if _SETTINGS_RE.match(goal.strip()):  # "open ThorAI settings" -> the settings window
             self._publish("Opening settings…")
