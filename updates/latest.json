@@ -1,12 +1,9 @@
 {
-  "version": "1.4.0",
-  "tag": "v1.4.0",
+  "version": "1.4.1",
+  "tag": "v1.4.1",
   "changelog": [
-    "🗣️ Full-duplex conversation — interrupt Jarvis mid-sentence and he stops and listens; follow-ups flow without the wake word.",
-    "🔁 \"Repeat that\" + short-term memory — he can re-say his last reply, and \"tell me more\" finally works.",
-    "💬 A real chat window — 'Just chat' mode is a private, local ChatGPT-style conversation with any installed model. Nothing leaves your machine.",
-    "⚙️ ThorAI Settings — choose how chatty confirmations are (Full/Simple/Off), toggle interruptions, pick your search engine. Say \"open ThorAI settings\".",
-    "🔴 AMD Radeon support out of the box — VRAM detected, right model tier picked, zero driver setup (verified on an RX 7900 XTX).",
-    "📦 New ISOs ship with a starter AI baked in — the assistant answers from first boot with no internet at all."
+    "🖥️ Ask about your machine and get real answers — \"what's my local IP\", \"how much memory does this system have\", \"find out the external IP\", CPU, graphics card, hostname, battery, uptime and more, read from the system itself, never guessed.",
+    "🔌 \"Reboot this computer\" / \"shut down\" / \"put it to sleep\" — real power control by voice, always confirmed with a yes/no first.",
+    "🛡️ Hardened: a mis-heard sentence can no longer flip autonomous mode, and \"how much disk space\" is fixed (it had crashed quietly since the beginning)."
   ]
 }
