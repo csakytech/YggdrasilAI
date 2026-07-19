@@ -25,6 +25,24 @@ _TOOLS = [
 ]
 
 
+def _gnome_shell_capture(out: str) -> bool:
+    """GNOME's built-in screenshot over D-Bus — no extra package needed (the standalone
+    gnome-screenshot binary is often NOT installed, but the Shell's method always is on a
+    GNOME desktop, and it works under Wayland where X11 tools can't grab the screen)."""
+    if not shutil.which("gdbus"):
+        return False
+    try:
+        r = subprocess.run(
+            ["gdbus", "call", "--session", "--dest", "org.gnome.Shell.Screenshot",
+             "--object-path", "/org/gnome/Shell/Screenshot",
+             "--method", "org.gnome.Shell.Screenshot.Screenshot", "false", "false", out],
+            capture_output=True, text=True, timeout=15)
+        # returns "(true, '/path')" on success
+        return r.returncode == 0 and "true" in r.stdout.lower()
+    except Exception:
+        return False
+
+
 def capture_png() -> bytes | None:
     """Grab the whole screen as PNG bytes, or None if no capture tool is available/working."""
     if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
@@ -32,14 +50,20 @@ def capture_png() -> bytes | None:
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
         out = tf.name
     try:
+        # GNOME Shell D-Bus first (present on every ThorOS desktop, Wayland-safe), then tools.
+        attempts = [lambda: _gnome_shell_capture(out)]
         for binary, template in _TOOLS:
-            if not shutil.which(binary):
-                continue
-            argv = [a.replace("{out}", out) for a in template]
+            if shutil.which(binary):
+                argv = [a.replace("{out}", out) for a in template]
+                attempts.append(lambda argv=argv: subprocess.run(
+                    argv, timeout=15, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL).returncode == 0)
+        for attempt in attempts:
             try:
-                subprocess.run(argv, timeout=15, stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, check=True)
+                ok = attempt()
             except Exception:
+                ok = False
+            if not ok:
                 continue
             try:
                 data = open(out, "rb").read()
@@ -64,5 +88,6 @@ def capture_b64() -> str | None:
 
 
 def available() -> bool:
-    return bool(os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")) and any(
-        shutil.which(b) for b, _ in _TOOLS)
+    if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
+        return False
+    return bool(shutil.which("gdbus")) or any(shutil.which(b) for b, _ in _TOOLS)
