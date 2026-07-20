@@ -56,6 +56,14 @@ if [ -f "$PRE_SRC" ] && [ -f "$PRE_SVC" ]; then
     systemctl start --no-block yggdrasil-preload.service >/dev/null 2>&1 || true
 fi
 
+# --- v1.5: screen vision needs a capture tool ------------------------------------------------
+# New ISOs bake gnome-screenshot; existing installs updating via the feed have the Vision code
+# but no grabber (GNOME's D-Bus screenshot is locked in modern GNOME), so "what am I looking at"
+# would fail to capture. Backfill it. Guarded + non-fatal (offline updates just skip it).
+if ! command -v gnome-screenshot >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gnome-screenshot >/dev/null 2>&1 || true
+fi
+
 # --- v1.4.1: power helper — reboot/shutdown by voice from any process context -----------------
 PWR_SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/local/sbin/yggdrasil-power
 PWR_SUDO=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/etc/sudoers.d/yggdrasil-power
