@@ -1,9 +1,10 @@
 {
-  "version": "1.4.1",
-  "tag": "v1.4.1",
+  "version": "1.5.0",
+  "tag": "v1.5.0",
   "changelog": [
-    "🖥️ Ask about your machine and get real answers — \"what's my local IP\", \"how much memory does this system have\", \"find out the external IP\", CPU, graphics card, hostname, battery, uptime and more, read from the system itself, never guessed.",
-    "🔌 \"Reboot this computer\" / \"shut down\" / \"put it to sleep\" — real power control by voice, always confirmed with a yes/no first.",
-    "🛡️ Hardened: a mis-heard sentence can no longer flip autonomous mode, and \"how much disk space\" is fixed (it had crashed quietly since the beginning)."
+    "👁️ Jarvis can see your screen — \"what am I looking at?\", \"read the screen\", \"what does this error say?\" He screenshots the screen and describes it aloud with a vision model running entirely on your own machine. Nothing leaves your computer.",
+    "🔒 Private by construction — the screenshot and the vision model both stay local.",
+    "♿ Reads and understands what's on screen for anyone who can't see it well — the point of ThorOS.",
+    "ℹ️ First look downloads the vision model (~3 GB, once); after that it's instant and works offline. Look-don't-touch by design — acting on what he sees comes next, and will always ask first."
   ]
 }
