@@ -3,7 +3,10 @@ task-gnome-desktop
 network-manager
 firmware-linux
 sudo
-# Screen capture for the Vision agent (task-gnome-desktop usually pulls gnome-screenshot, but
-# name it explicitly so "what am I looking at" always has a capture tool; grim covers Wayland).
-gnome-screenshot
+# Screen capture + pointer control for the Vision agent. scrot is the SILENT grabber preferred
+# for seamless capture (no shutter, no flash); grim covers Wayland; gnome-screenshot is the
+# flashy last resort. xdotool moves/clicks the pointer for click-by-sight (X11 session).
+scrot
 grim
+gnome-screenshot
+xdotool

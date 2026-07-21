@@ -255,6 +255,27 @@ _VISION_RE = re.compile(
     re.I,
 )
 
+# "Click the <thing>" / "scroll down" -> the Vision agent grounds the element to a pixel and
+# clicks (or scrolls). This is the CONTROL rung of sight. "click 4" / "select 4" stay the
+# browser's link-number commands (numeric); "click the X button" is vision. Scroll is its own.
+_VCLICK_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?(?:can you |could you |please |go ahead and )*"
+    r"(?:click|press|tap|hit|push|select)\s+(?:on\s+)?"
+    # exclusions anchored HERE (after the verb) so backtracking the optional article can't
+    # escape them: link numbers stay the browser's job, key names are keystrokes not clicks.
+    r"(?!(?:the\s+|that\s+|a\s+)?\d+\b)(?!link\s+\d)"
+    r"(?!(?:the\s+|that\s+|a\s+)?(?:enter|return|escape|esc|tab|space ?bar|space|delete|"
+    r"backspace|control|shift|alt|page ?up|page ?down|arrow)\b)"
+    r"(?:the\s+|that\s+|a\s+)?"
+    r"(.+?)(?:\s+(?:button|link|icon|tab|box|field|menu))?\s*$",
+    re.I,
+)
+_VSCROLL_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?(?:can you |could you |please )?"
+    r"scroll\s+(up|down|to the top|to the bottom|back up|a little|a lot|all the way)?\b",
+    re.I,
+)
+
 # "Reboot this computer / shut down / put it to sleep" -> system.power, deterministically —
 # behind a spoken yes/no. Left to the planner this misrouted into system.autonomy and flipped
 # the security mode (live bug). Excludes "restart yourself/jarvis" (the assistant, not the
@@ -1152,6 +1173,16 @@ class Orchestrator:
         if _VISION_RE.match(goal.strip()):  # "what am I looking at" -> Jarvis looks at the screen
             self._publish("Looking at the screen…")
             task = Task(action="vision.look", agent="vision", params={"argument": goal})
+            return self._render(task, await self._dispatch(task))
+        if _VSCROLL_RE.match(goal.strip()):  # "scroll down" -> scroll the screen
+            self._publish("")
+            task = Task(action="vision.scroll", agent="vision", params={"argument": goal})
+            return self._render(task, await self._dispatch(task))
+        vclk = _VCLICK_RE.match(goal.strip())
+        if vclk and not self._help_commands:  # "click the Watch Demo button" -> find + click it
+            # a live help card owns bare "click N"; this is named-element clicking by sight
+            self._publish("Finding it on screen…")
+            task = Task(action="vision.click", agent="vision", params={"argument": vclk.group(1).strip()})
             return self._render(task, await self._dispatch(task))
         if _POWER_RE.match(goal.strip()):  # "reboot this computer" -> confirm, then really do it
             self._publish("")

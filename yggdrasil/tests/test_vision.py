@@ -121,3 +121,93 @@ def test_vision_role_resolves_to_a_vlm_not_the_text_default(monkeypatch, tmp_pat
     assert mm.resolved("reasoner") == "qwen3:14b"       # other roles still fall back to default
     mm.bind("vision", "llava:7b")
     assert mm.resolved("vision") == "llava:7b"           # explicit binding wins
+
+
+# ---- click by sight (v1.5.1 control rung) ----
+
+from yggdrasil.core.orchestrator import _VCLICK_RE, _VSCROLL_RE
+
+
+@pytest.mark.parametrize("phrase, target", [
+    ("click the Watch Demo button", "Watch Demo"),
+    ("Jarvis, click the blue subscribe button", "blue subscribe"),
+    ("press the X to close it", "X to close it"),
+    ("click on the login link", "login"),
+    ("tap the menu icon", "menu"),
+    ("hit the play button", "play"),
+])
+def test_click_routes_and_extracts_target(phrase, target):
+    m = _VCLICK_RE.match(phrase)
+    assert m and target.lower() in m.group(1).lower().strip()
+
+
+@pytest.mark.parametrize("phrase", [
+    "select 4",            # browser link-number, not vision
+    "click 3",             # browser link-number
+    "click link 5",
+    "press enter",         # keystroke, not a visual click
+    "hit escape",
+    "press the space bar",
+])
+def test_click_leaves_numbers_and_keys_alone(phrase):
+    assert not _VCLICK_RE.match(phrase)
+
+
+@pytest.mark.parametrize("phrase", ["scroll down", "scroll up", "scroll to the bottom",
+                                    "Jarvis, scroll down", "please scroll back up", "scroll a lot"])
+def test_scroll_routes(phrase):
+    assert _VSCROLL_RE.match(phrase)
+
+
+@pytest.mark.asyncio
+async def test_click_grounds_and_clicks(monkeypatch):
+    import yggdrasil.agents.vision_agent as va
+
+    class _VLM:
+        model = "qwen2.5vl:3b"
+        async def describe_image(self, *, system, prompt, image_b64, temperature=0.2):
+            from yggdrasil.core.llm import LLMResponse
+            return LLMResponse(text='{"found": true, "x_pct": 50, "y_pct": 25, "label": "Watch Demo"}')
+
+    clicks = []
+    monkeypatch.setattr(va.screen, "available", lambda: True)
+    monkeypatch.setattr(va.screen, "capture_b64", lambda: "img")
+    monkeypatch.setattr(va.screen, "geometry", lambda: (1920, 1080))
+    monkeypatch.setattr(va.screen, "click_at", lambda x, y, button=1: clicks.append((x, y)) or True)
+
+    from yggdrasil.core.bus import LocalBus
+    from yggdrasil.core.permissions import AuthChallenge, DefaultPolicy, PermissionManager, UserChannel
+    class _Ch(UserChannel):
+        async def present_challenge(self, c): pass
+    ag = va.VisionAgent(LocalBus(), PermissionManager(DefaultPolicy(), _Ch()), _VLM(),
+                        _Models(["qwen2.5vl:3b"]))
+    out = await ag._execute("click", {"argument": "the Watch Demo button"})
+    assert clicks == [(960, 270)]  # 50% of 1920, 25% of 1080 — grounded, not guessed
+    assert "watch demo" in out["speech"].lower()
+
+
+@pytest.mark.asyncio
+async def test_click_not_found_is_honest(monkeypatch):
+    import yggdrasil.agents.vision_agent as va
+
+    class _VLM:
+        model = "qwen2.5vl:3b"
+        async def describe_image(self, *, system, prompt, image_b64, temperature=0.2):
+            from yggdrasil.core.llm import LLMResponse
+            return LLMResponse(text='{"found": false, "label": ""}')
+
+    clicked = []
+    monkeypatch.setattr(va.screen, "available", lambda: True)
+    monkeypatch.setattr(va.screen, "capture_b64", lambda: "img")
+    monkeypatch.setattr(va.screen, "geometry", lambda: (1920, 1080))
+    monkeypatch.setattr(va.screen, "click_at", lambda x, y, button=1: clicked.append(1) or True)
+
+    from yggdrasil.core.bus import LocalBus
+    from yggdrasil.core.permissions import AuthChallenge, DefaultPolicy, PermissionManager, UserChannel
+    class _Ch(UserChannel):
+        async def present_challenge(self, c): pass
+    ag = va.VisionAgent(LocalBus(), PermissionManager(DefaultPolicy(), _Ch()), _VLM(),
+                        _Models(["qwen2.5vl:3b"]))
+    out = await ag._execute("click", {"argument": "the nonexistent widget"})
+    assert clicked == []  # never clicks when the model didn't find it — no blind clicking
+    assert "couldn't find" in out["speech"].lower()

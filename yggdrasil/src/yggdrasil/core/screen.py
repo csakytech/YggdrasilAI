@@ -12,16 +12,17 @@ import subprocess
 import tempfile
 
 # (binary, argv-template) — {out} is replaced with the target file. First that exists + works
-# wins. gnome-screenshot and spectacle cover the GNOME/KDE desktops; grim is Wayland; scrot,
-# maim, and ImageMagick's import cover X11; xdg-desktop-portal's grim path is the Wayland
-# fallback most compositors honor.
+# wins. SILENT grabbers come first: the assistant should look at the screen invisibly — no
+# shutter sound, no white flash — so it feels seamless. scrot/maim/ImageMagick-import are
+# silent on X11; grim is silent on Wayland. gnome-screenshot (flash + camera sound) and the
+# GNOME Shell D-Bus path are LAST resorts, only if nothing quiet is installed.
 _TOOLS = [
-    ("gnome-screenshot", ["gnome-screenshot", "-f", "{out}"]),
+    ("scrot", ["scrot", "-o", "{out}"]),
+    ("maim", ["maim", "-u", "{out}"]),
+    ("import", ["import", "-silent", "-window", "root", "{out}"]),
     ("grim", ["grim", "{out}"]),
     ("spectacle", ["spectacle", "-b", "-n", "-o", "{out}"]),
-    ("scrot", ["scrot", "-o", "{out}"]),
-    ("maim", ["maim", "{out}"]),
-    ("import", ["import", "-window", "root", "{out}"]),
+    ("gnome-screenshot", ["gnome-screenshot", "-f", "{out}"]),  # flashes — last resort
 ]
 
 
@@ -50,14 +51,16 @@ def capture_png() -> bytes | None:
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
         out = tf.name
     try:
-        # GNOME Shell D-Bus first (present on every ThorOS desktop, Wayland-safe), then tools.
-        attempts = [lambda: _gnome_shell_capture(out)]
+        # Silent tools first (see _TOOLS); the flashy GNOME Shell D-Bus path is the very last
+        # resort — and it's locked in modern GNOME anyway, so it rarely fires.
+        attempts = []
         for binary, template in _TOOLS:
             if shutil.which(binary):
                 argv = [a.replace("{out}", out) for a in template]
                 attempts.append(lambda argv=argv: subprocess.run(
                     argv, timeout=15, stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL).returncode == 0)
+        attempts.append(lambda: _gnome_shell_capture(out))
         for attempt in attempts:
             try:
                 ok = attempt()
@@ -91,3 +94,45 @@ def available() -> bool:
     if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
         return False
     return bool(shutil.which("gdbus")) or any(shutil.which(b) for b, _ in _TOOLS)
+
+
+# --- pointer control (X11 via xdotool; ThorOS runs an X11 session by design) -------------------
+
+def geometry() -> tuple[int, int] | None:
+    """(width, height) of the screen in pixels, for scaling the vision model's coordinates."""
+    try:
+        out = subprocess.run(["xdotool", "getdisplaygeometry"],
+                             capture_output=True, text=True, timeout=5).stdout.split()
+        if len(out) == 2:
+            return int(out[0]), int(out[1])
+    except Exception:
+        pass
+    return None
+
+
+def click_at(x: int, y: int, button: int = 1) -> bool:
+    """Move the pointer to (x, y) and click. Returns False if xdotool isn't available."""
+    if not shutil.which("xdotool"):
+        return False
+    try:
+        subprocess.run(["xdotool", "mousemove", str(int(x)), str(int(y))],
+                       timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["xdotool", "click", str(int(button))],
+                       timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        return False
+
+
+def scroll(direction: str = "down", amount: int = 5) -> bool:
+    """Scroll the surface under the pointer. X11 wheel buttons: 4 = up, 5 = down."""
+    if not shutil.which("xdotool"):
+        return False
+    button = "4" if direction == "up" else "5"
+    try:
+        for _ in range(max(1, min(amount, 20))):
+            subprocess.run(["xdotool", "click", button],
+                           timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        return False
