@@ -93,6 +93,7 @@ class VisionAgent(BaseAgent):
             return "I couldn't read the screen size, so I can't click accurately."
         if not description:
             return "What would you like me to click?"
+        screen.wake()  # a blanked display captures as pure black — wake it before looking
         img = screen.capture_b64()
         if not img:
             return "I couldn't capture the screen just now."
@@ -154,6 +155,7 @@ class VisionAgent(BaseAgent):
             return "I need a vision model to look at the screen. There isn't one set up yet."
         if not screen.available():
             return "I can only look at the screen when you're signed in at the desktop."
+        screen.wake()  # a blanked display captures as pure black — wake it before looking
         img = screen.capture_b64()
         if not img:
             return "I couldn't capture the screen just now."

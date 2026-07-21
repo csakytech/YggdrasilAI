@@ -96,6 +96,19 @@ def available() -> bool:
     return bool(shutil.which("gdbus")) or any(shutil.which(b) for b, _ in _TOOLS)
 
 
+def wake() -> None:
+    """Make sure the display is actually ON before capturing. ThorOS never locks the screen,
+    but it can still idle-BLANK — and a capture taken then is pure black, which the vision
+    model will faithfully describe as 'a black screen'. Fire-and-forget; never raises."""
+    if os.environ.get("WAYLAND_DISPLAY") or not os.environ.get("DISPLAY"):
+        return
+    for argv in (["xset", "s", "reset"], ["xset", "dpms", "force", "on"]):
+        try:
+            subprocess.run(argv, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+
 # --- pointer control (X11 via xdotool; ThorOS runs an X11 session by design) -------------------
 
 def geometry() -> tuple[int, int] | None:
