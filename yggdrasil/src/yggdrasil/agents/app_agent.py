@@ -25,6 +25,22 @@ from .base import BaseAgent
 
 _THINK = re.compile(r"<think>.*?</think>", re.S)
 
+# A domain hiding inside a spoken phrase ("open up the yggdrasilai.org website"). Requires a
+# known-ish TLD so ordinary sentences ("open the report.txt file") aren't mistaken for sites.
+_DOMAIN_RE = re.compile(
+    r"\b((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+"
+    r"(?:com|org|net|io|dev|ai|co|edu|gov|uk|de|se|no|info|app|xyz|tv|me|us|ca|au|nl|fr|it|es)"
+    r"(?:/[^\s]*)?)\b", re.I)
+
+# Filler words that surround a spoken address and must not be treated as part of it.
+_SITE_FILLER = re.compile(r"\b(?:the|a|up|website|site|web ?page|page|dot com)\b", re.I)
+
+
+def _extract_domain(phrase: str) -> str | None:
+    """Find a real domain inside a spoken phrase; None if there isn't one."""
+    m = _DOMAIN_RE.search(_SITE_FILLER.sub(" ", phrase or ""))
+    return m.group(1).rstrip(".,") if m else None
+
 # Friendly SYNONYMS only — layered on top of the system app database below, NOT a hard-coded list
 # of every program. "browser" → firefox, "word processor" → libreoffice, etc.
 _ALIASES = {
@@ -328,7 +344,14 @@ class AppsAgent(BaseAgent):
             if "." in t and " " not in t:
                 t = "https://" + t
             else:
-                return self._search(target)  # not a URL -> treat as a search
+                # A spoken request carries filler: "open up the yggdrasilai.org website".
+                # Pull a real domain out of the phrase before giving up and searching —
+                # otherwise a perfectly good address becomes a web search (live bug).
+                dom = _extract_domain(t)
+                if dom:
+                    t = "https://" + dom
+                else:
+                    return self._search(target)  # genuinely not a URL -> search
         try:
             before = self._window_ids()
             self._open_in_firefox(t)

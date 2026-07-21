@@ -90,3 +90,20 @@ def test_settings_route():
     for p in ("open settings", "open system settings", "open the settings app",
               "change my settings for the terminal"):
         assert not _SETTINGS_RE.match(p), p
+
+
+def test_domain_extracted_from_spoken_phrases():
+    """Live bug: 'open up the yggdrasilai.org website' fell through to a web SEARCH because the
+    URL check required a space-free argument. Spoken addresses carry filler words."""
+    from yggdrasil.agents.app_agent import _extract_domain
+    for phrase, expect in [
+        ("yggdrasilai.org", "yggdrasilai.org"),
+        ("the yggdrasilai.org website", "yggdrasilai.org"),
+        ("up www.yggdrasilai.org website", "www.yggdrasilai.org"),
+        ("open the github.com page", "github.com"),
+        ("go to news.bbc.co.uk", "news.bbc.co.uk"),
+        ("example.org/downloads", "example.org/downloads"),
+    ]:
+        assert _extract_domain(phrase) == expect, phrase
+    for phrase in ["cat videos", "the report.txt file", "my documents folder", "robots"]:
+        assert _extract_domain(phrase) is None, phrase
