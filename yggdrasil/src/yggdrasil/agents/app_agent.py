@@ -52,6 +52,8 @@ _ALIASES = {
     "calculator": "gnome-calculator",
     "dashboard": "yggdrasil-dashboard", "yggdrasil dashboard": "yggdrasil-dashboard",
     "control panel": "yggdrasil-dashboard",
+    "tasks": "yggdrasil-tasks", "tasks window": "yggdrasil-tasks", "jobs": "yggdrasil-tasks",
+    "activity": "yggdrasil-tasks", "activity window": "yggdrasil-tasks",
     "thorai settings": "yggdrasil-settings", "thor ai settings": "yggdrasil-settings",
     "assistant settings": "yggdrasil-settings", "jarvis settings": "yggdrasil-settings",
     "voice settings": "yggdrasil-settings",

@@ -43,7 +43,7 @@ def test_pkg_gate_accepts(good):
 # ---- 2. no install without a spoken yes ----
 
 @pytest.mark.asyncio
-async def test_install_waits_for_confirm(monkeypatch):
+async def test_install_waits_for_confirm_then_runs_in_background(monkeypatch):
     ag = _agent()
 
     async def fake_available(pkg):
@@ -52,24 +52,21 @@ async def test_install_waits_for_confirm(monkeypatch):
     async def fake_installed(pkg):
         return False
 
-    ran = []
-
-    async def fake_helper(pkg):
-        ran.append(pkg)
-        return 0, ""
-
+    started = []
     monkeypatch.setattr(ag, "_available", fake_available)
     monkeypatch.setattr(ag, "_installed", fake_installed)
-    monkeypatch.setattr(ag, "_helper", fake_helper)
+    monkeypatch.setattr(ag, "_start_background_install", lambda pkg, spoken: started.append(pkg))
+    monkeypatch.setattr(ag, "_open_tasks_window", lambda: None)
 
     out = await ag._execute("install", {"argument": "obs studio"})
     assert out.get("await_confirm") and out.get("agent") == "software"
-    assert ran == []  # nothing installed yet — the yes hasn't been spoken
+    assert started == []  # nothing kicked off yet — the yes hasn't been spoken
     assert ag._pending and ag._pending["pkg"] == "obs-studio"
 
     out = await ag._execute("confirm", {})
-    assert ran == ["obs-studio"]
-    assert "installed" in out["speech"].lower()
+    assert started == ["obs-studio"]                 # install now runs in the BACKGROUND
+    assert "installing" in out["speech"].lower()     # returns immediately, doesn't block
+    assert "tasks window" in out["speech"].lower() or out.get("opened_tasks")
 
 
 @pytest.mark.asyncio

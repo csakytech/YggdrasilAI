@@ -14,7 +14,9 @@ from collections import deque
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable
 
-from . import config, journal, mission, trace, transcript
+import time as _time
+
+from . import config, jobs, journal, mission, trace, transcript
 from . import models as models_mod
 from .bus import Bus, Result, Status, Task
 from .focus import active_window
@@ -236,6 +238,25 @@ _REPEAT_RE = re.compile(
     r"what did you (?:just )?say|come again)\b",
     re.I,
 )
+
+# "How's the install going / what are you working on / are you still working on that" -> read
+# the TRUTH from the background-jobs registry, never the language model (which fabricated "I'm
+# still trying to install it" with no basis — the live bug this fixes). Also "open the tasks
+# window".
+_JOBS_STATUS_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?(?:can you |could you |please )?(?:"
+    r"(?:how(?:'s| is| are| did))\b.{0,40}\b(?:going|install|installing|download|coming along|progress|do)"
+    r"|what(?:'s| are| is)? (?:you|jarvis)? ?(?:working on|doing|up to)\b"
+    r"|are you (?:still |done )?(?:working|installing|downloading|busy)"
+    r"|are you (?:done|finished|still going)\b"
+    r"|what(?:'s| is) (?:the )?(?:status|progress)\b"
+    r")",
+    re.I,
+)
+_JOBS_WINDOW_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?(?:can you |could you |please )?"
+    r"(?:open|show|bring up|pull up|display)\s+(?:the\s+)?(?:tasks?|jobs?|activity|work)\s+"
+    r"(?:window|list|panel)?\b", re.I)
 
 # "What am I looking at / what's on my screen / read the screen / what does this say" -> the
 # Vision agent looks at the screen with a local multimodal model. Deterministic because the
@@ -1169,6 +1190,14 @@ class Orchestrator:
         if _SCHEDULE_RE.match(goal.strip()):  # "remind me…" / "schedule…" / "every weekday at 9…"
             self._publish("Scheduling…")
             task = Task(action="schedule.add", agent="schedule", params={"argument": goal})
+            return self._render(task, await self._dispatch(task))
+        if _JOBS_STATUS_RE.match(goal.strip()):  # "how's the install going" -> the REAL status
+            self._publish("")
+            now = _time.time()
+            return jobs.describe(jobs.recent(now), now)
+        if _JOBS_WINDOW_RE.match(goal.strip()):  # "open the tasks window"
+            self._publish("")
+            task = Task(action="app.launch", agent="app", params={"argument": "tasks window"})
             return self._render(task, await self._dispatch(task))
         if _VISION_RE.match(goal.strip()):  # "what am I looking at" -> Jarvis looks at the screen
             self._publish("Looking at the screen…")

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Jarvis Tasks
+Comment=What Jarvis is working on in the background — installs, downloads
+Exec=yggdrasil-tasks
+Terminal=false
+Categories=Utility;
+Keywords=yggdrasil;jarvis;tasks;jobs;activity;progress;background;

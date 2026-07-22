@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Tasks window (GTK): what Jarvis is doing in the background — installs, downloads — live.
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+exec /opt/yggdrasil/venv/bin/python -m yggdrasil.ui.tasks "$@"

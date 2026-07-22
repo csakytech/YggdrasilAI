@@ -73,11 +73,13 @@ if [ -f "$PWR_SUDO" ] && [ ! -f /etc/sudoers.d/yggdrasil-power ]; then
     install -m 440 "$PWR_SUDO" /etc/sudoers.d/yggdrasil-power || true
 fi
 
-# --- v1.4: ThorAI Settings window — install its launcher + app entry on existing installs -----
-SET_SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/local/bin/yggdrasil-settings
-SET_DESK=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/share/applications/yggdrasil-settings.desktop
-[ -f "$SET_SRC" ] && install -m 755 "$SET_SRC" /usr/local/bin/yggdrasil-settings || true
-[ -f "$SET_DESK" ] && install -m 644 "$SET_DESK" /usr/share/applications/yggdrasil-settings.desktop || true
+# --- v1.4/1.5.2: GTK window launchers (Settings, Tasks) + their app entries on existing installs
+for w in settings tasks; do
+    SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/local/bin/yggdrasil-$w
+    DESK=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/share/applications/yggdrasil-$w.desktop
+    [ -f "$SRC" ] && install -m 755 "$SRC" /usr/local/bin/yggdrasil-$w || true
+    [ -f "$DESK" ] && install -m 644 "$DESK" /usr/share/applications/yggdrasil-$w.desktop || true
+done
 
 # --- v1.2: no screen lock on a voice appliance ------------------------------------------------
 # Autologin (firstboot) + an idle lock screen demanding a password is a contradiction — users

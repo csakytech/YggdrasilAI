@@ -9,11 +9,14 @@ name, so nothing spoken can smuggle options or commands through.
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import shutil
 import subprocess
+import time
 from typing import Any
 
+from ..core import jobs
 from ..core.permissions import Capability
 from .base import BaseAgent
 
@@ -85,7 +88,11 @@ class SoftwareAgent(BaseAgent):
                 return {"speech": f"I couldn't find {spoken} exactly — the closest packages are "
                                   f"{', '.join(near[:3])}. Want one of those? Just say install and the name.",
                         "assist": False}
-            return {"speech": f"I couldn't find {spoken} in the software repositories.", "assist": True}
+            # A clean, honest final answer — NOT assist:True. Flagging assist here let the
+            # reasoning backbone fabricate "I'm still trying to install it" (a real bug: the
+            # model invents comforting progress it has no basis for). The truth is complete.
+            return {"speech": f"I couldn't find {spoken} in the software repositories. "
+                              "Try saying it a different way, or ask me to search for it."}
         if await self._installed(pkg):
             name = spoken if speak_offer else pkg
             return ({"speech": f"Good news — {name} is already installed. Say “open {spoken}” to start it."}
@@ -102,13 +109,57 @@ class SoftwareAgent(BaseAgent):
         if not p:
             return {"speech": "There's nothing waiting to install."}
         pkg, spoken = p["pkg"], p["spoken"]
-        code, out = await self._helper(pkg)
-        if code == 0:
-            return {"speech": f"Done — {spoken} is installed. Say “open {spoken}” when you want it."}
-        tail = (out or "").strip().splitlines()[-1:] or ["unknown error"]
-        return {"speech": f"The install of {spoken} failed — {tail[0][:120]}. "
-                          "You can try again in a few minutes, or I can look up an alternative.",
-                "assist": True}
+        # Installs can take minutes. Run in the BACKGROUND as a tracked job so the conversation
+        # isn't blocked, the Tasks window shows live progress, and "how's the install going?"
+        # reads the real state — never a fabricated one. Return immediately.
+        self._start_background_install(pkg, spoken)
+        self._open_tasks_window()
+        return {"speech": f"Installing {spoken} now — it'll take a minute or two. I've opened the "
+                          "Tasks window so you can watch, and you can ask me how it's going anytime.",
+                "opened_tasks": True}
+
+    def _start_background_install(self, pkg: str, spoken: str) -> None:
+        import shutil
+        import threading
+
+        job_id = f"install-{pkg}"
+        jobs.start(job_id, "Software", f"Installing {spoken}", time.time())
+
+        def worker() -> None:
+            ok, detail = False, ""
+            try:
+                if not shutil.which("sudo"):
+                    detail = "sudo is not available"
+                else:
+                    proc = subprocess.Popen(
+                        ["sudo", "-n", _HELPER, pkg],
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                    for line in iter(proc.stdout.readline, ""):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        m = re.search(r"(\d+)%", line)
+                        jobs.update(job_id, time.time(),
+                                    progress=float(m.group(1)) if m else None, detail=line[:100])
+                    proc.wait(timeout=900)
+                    ok = proc.returncode == 0
+                    if not ok:
+                        detail = f"install failed (exit {proc.returncode})"
+            except Exception as e:  # noqa: BLE001
+                detail = repr(e)[:100]
+            jobs.finish(job_id, time.time(), ok=ok,
+                        detail=f"{spoken} is installed" if ok else detail)
+
+        threading.Thread(target=worker, daemon=True, name=job_id).start()
+
+    @staticmethod
+    def _open_tasks_window() -> None:
+        if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
+            return
+        try:
+            subprocess.Popen(["yggdrasil-tasks"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
     # ---- resolution (read-only apt queries, no root) ----
     async def _resolve(self, spoken: str) -> str | None:
@@ -116,6 +167,12 @@ class SoftwareAgent(BaseAgent):
         candidates = []
         if s in _KNOWN:
             candidates.append(_KNOWN[s])
+        else:
+            # Speech transposes letters ("OBS" heard as "OSB"). Fuzzy-match the FIRST word
+            # against the curated map's keys so common apps survive a mishearing.
+            fuzzy = self._fuzzy_known(s)
+            if fuzzy:
+                candidates.append(fuzzy)
         norm = s.replace(" ", "-")
         if _PKG_RE.match(norm):
             candidates.append(norm)
@@ -131,6 +188,28 @@ class SoftwareAgent(BaseAgent):
         for hit in near:
             if hit == norm or hit == joined:
                 return hit
+        return None
+
+    @staticmethod
+    def _fuzzy_known(spoken: str) -> str | None:
+        """Match a mis-heard app name to a curated package. 'osb studio'/'osb' -> obs-studio.
+        Requires a close match (anagram-ish typo, not a wild guess) so we don't install the
+        wrong thing: same letters within an edit or two, or a first-word near-hit."""
+        import difflib
+
+        words = spoken.split()
+        first = words[0] if words else spoken
+        keys = list(_KNOWN.keys())
+        # exact-ish on the whole phrase or the first word
+        for probe in (spoken, first):
+            m = difflib.get_close_matches(probe, keys, n=1, cutoff=0.8)
+            if m:
+                return _KNOWN[m[0]]
+        # transposition guard: sorted letters equal (osb == obs) for the app token
+        for key in keys:
+            kw = key.split()[0]
+            if len(kw) <= 5 and sorted(kw) == sorted(first) and kw != first:
+                return _KNOWN[key]
         return None
 
     async def _available(self, pkg: str) -> bool:
