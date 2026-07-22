@@ -81,3 +81,39 @@ def test_fuzzy_known_recovers_transposition():
     assert SoftwareAgent._fuzzy_known("osb") == "obs-studio"
     assert SoftwareAgent._fuzzy_known("gimp") == "gimp"               # exact still fine
     assert SoftwareAgent._fuzzy_known("banana pancakes") is None      # not a wild guess
+
+
+# ---- "did you mean?" — a mishearing is offered as a question, not a silent swap ----
+
+@pytest.mark.asyncio
+async def test_mishearing_asks_did_you_mean(monkeypatch):
+    import yggdrasil.agents.software_agent as sa
+    from yggdrasil.core.bus import LocalBus
+    from yggdrasil.core.permissions import AuthChallenge, DefaultPolicy, PermissionManager, UserChannel
+
+    class _Ch(UserChannel):
+        async def present_challenge(self, c): pass
+
+    ag = sa.SoftwareAgent(LocalBus(), PermissionManager(DefaultPolicy(), _Ch()))
+
+    async def avail(pkg):        # nothing matches by exact name; obs-studio is available
+        return pkg == "obs-studio"
+
+    async def not_installed(pkg):
+        return False
+
+    async def no_near(spoken):
+        return []
+
+    monkeypatch.setattr(ag, "_available", avail)
+    monkeypatch.setattr(ag, "_installed", not_installed)
+    monkeypatch.setattr(ag, "_nearby", no_near)
+
+    out = await ag._execute("install", {"argument": "OSB Studio"})
+    # asks to confirm the correction rather than failing OR silently installing
+    assert out.get("await_confirm")
+    assert "did you mean" in out["speech"].lower()
+    assert "obs studio" in out["speech"].lower()
+    assert ag._pending and ag._pending["pkg"] == "obs-studio"
+    # and it NEVER claims to be installing something it isn't
+    assert "installing" not in out["speech"].lower()

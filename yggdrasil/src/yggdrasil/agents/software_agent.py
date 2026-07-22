@@ -83,6 +83,16 @@ class SoftwareAgent(BaseAgent):
         if pkg is None:
             if not speak_offer:
                 return {"ok": False}
+            # Didn't find it by that exact name. Before giving up, check for a likely mishearing
+            # ("OSB" for "OBS") and OFFER the correction as a question — never silently install a
+            # near-match, never pretend it's installing (the two failure modes from the report).
+            corrected = self._fuzzy_known(spoken)
+            if corrected and await self._available(corrected):
+                nice = corrected.replace("-", " ").title()
+                self._pending = {"pkg": corrected, "spoken": nice}
+                return {"await_confirm": True, "agent": "software",
+                        "speech": f"I couldn't find {spoken} — did you mean {nice}? "
+                                  "Say yes to install it, or no."}
             near = await self._nearby(spoken)
             if near:
                 return {"speech": f"I couldn't find {spoken} exactly — the closest packages are "
@@ -163,16 +173,13 @@ class SoftwareAgent(BaseAgent):
 
     # ---- resolution (read-only apt queries, no root) ----
     async def _resolve(self, spoken: str) -> str | None:
+        """Resolve a spoken name to a package we're SURE about (curated exact, or a real apt
+        package by that exact name). A mishearing correction is deliberately NOT done here —
+        the caller surfaces that as a 'did you mean?' question instead of a silent swap."""
         s = re.sub(r"\s+", " ", spoken.lower().strip(" .!?"))
         candidates = []
         if s in _KNOWN:
             candidates.append(_KNOWN[s])
-        else:
-            # Speech transposes letters ("OBS" heard as "OSB"). Fuzzy-match the FIRST word
-            # against the curated map's keys so common apps survive a mishearing.
-            fuzzy = self._fuzzy_known(s)
-            if fuzzy:
-                candidates.append(fuzzy)
         norm = s.replace(" ", "-")
         if _PKG_RE.match(norm):
             candidates.append(norm)
@@ -197,6 +204,7 @@ class SoftwareAgent(BaseAgent):
         wrong thing: same letters within an edit or two, or a first-word near-hit."""
         import difflib
 
+        spoken = re.sub(r"\s+", " ", (spoken or "").lower().strip(" .!?"))
         words = spoken.split()
         first = words[0] if words else spoken
         keys = list(_KNOWN.keys())
