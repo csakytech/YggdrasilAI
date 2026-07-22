@@ -7,6 +7,7 @@ jobs registry (core/jobs.py) twice a second. Read-only; GTK3.
 """
 from __future__ import annotations
 
+import sys
 import time
 
 import gi
@@ -15,6 +16,10 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk, Pango  # noqa: E402
 
 from ..core import config, jobs  # noqa: E402
+
+
+def _argv() -> list[str]:
+    return sys.argv[1:]
 
 
 def _elapsed(secs: int) -> str:
@@ -48,6 +53,11 @@ class TasksWindow(Gtk.Window):
         box.pack_start(self._empty, False, False, 0)
 
         self._rows: dict[str, dict] = {}
+        self._saw_work = False       # did any job ever run while this window was open?
+        self._idle_since: float | None = None
+        # Only the window Jarvis auto-opens on an install tidies itself away when done
+        # (--autoclose); a window the user opened by hand stays until they close it.
+        self._autoclose = "--autoclose" in _argv()
         GLib.timeout_add(500, self._refresh)
 
     def _refresh(self) -> bool:
@@ -61,6 +71,18 @@ class TasksWindow(Gtk.Window):
             self._render_job(j, now)
         self._empty.set_visible(not shown)
         self._list.show_all()
+
+        running = any(j.get("state") == "running" for j in shown)
+        if running:
+            self._saw_work = True
+            self._idle_since = None
+        elif self._saw_work and self._idle_since is None:
+            self._idle_since = now
+        # Once everything's finished, linger ~8s so the user reads "finished", then close.
+        if (self._autoclose and self._idle_since is not None
+                and now - self._idle_since > 8.0):
+            self.destroy()
+            return False
         return True
 
     def _render_job(self, j: dict, now: float) -> None:

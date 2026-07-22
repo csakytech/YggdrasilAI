@@ -21,6 +21,7 @@ import asyncio
 import os
 import re
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -433,11 +434,32 @@ def main() -> None:
     runner = Runner(shared_schedule(), speak=speaker.say, briefing=_briefing)
     runner.start()
     print(f"[scheduler] {len(shared_schedule().list())} job(s) loaded")
+
+    # Job announcer: watch the background-jobs registry and SPEAK each completion once
+    # ("OBS Studio has finished installing"), so a long install/download tells you when it's
+    # done instead of finishing silently. Own daemon thread; Speaker.say is lock-serialized.
+    from ..core import jobs as _jobs
+
+    _announce_stop = threading.Event()
+
+    def _announcer() -> None:
+        while not _announce_stop.wait(3.0):
+            try:
+                now = time.time()
+                for j in _jobs.unannounced_finished(now):
+                    speaker.say(_jobs.spoken_completion(j))
+                    _jobs.mark_announced(j["id"])
+            except Exception as e:  # noqa: BLE001
+                print(f"[announcer] {e!r}", file=sys.stderr)
+
+    threading.Thread(target=_announcer, daemon=True, name="job-announcer").start()
+
     try:
         assistant.run()
     except KeyboardInterrupt:
         print()
     finally:
+        _announce_stop.set()
         runner.stop()
         loop.run_until_complete(bus.close())
         loop.close()

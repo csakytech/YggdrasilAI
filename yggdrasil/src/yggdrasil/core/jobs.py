@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -43,13 +44,16 @@ def _save(jobs: list[dict]) -> None:
         pass
 
 
-def start(job_id: str, agent: str, title: str, now: float) -> None:
+def start(job_id: str, agent: str, title: str, now: float, done_message: str = "") -> None:
     """Register a new running job. `now` is passed in (Date.now() is fine in agents) so the
-    registry never calls time itself in a way that breaks determinism in tests."""
+    registry never calls time itself in a way that breaks determinism in tests. `done_message`
+    is what Jarvis SAYS aloud when it finishes ("OBS Studio has finished installing"); blank
+    lets the announcer derive one from the title."""
     with _LOCK:
         jobs = [j for j in _load() if j.get("id") != job_id]
         jobs.append({"id": job_id, "agent": agent, "title": title, "state": "running",
-                     "progress": None, "detail": "", "started": now, "updated": now, "ended": None})
+                     "progress": None, "detail": "", "started": now, "updated": now,
+                     "ended": None, "done_message": done_message, "announced": False})
         _save(jobs[-30:])  # keep the tail; the window shows recent history too
 
 
@@ -77,6 +81,43 @@ def finish(job_id: str, now: float, *, ok: bool, detail: str = "") -> None:
                 j["detail"] = detail or j.get("detail", "")
                 j["progress"] = 100.0 if ok else j.get("progress")
                 j["updated"] = j["ended"] = now
+                break
+        _save(jobs)
+
+
+def unannounced_finished(now: float, within: float = 300.0) -> list[dict]:
+    """Jobs that just finished and haven't been SPOKEN yet — for the voice announcer. Only
+    recent completions, so a restart doesn't re-announce old history."""
+    return [j for j in _load()
+            if j.get("state") in ("done", "error") and not j.get("announced")
+            and j.get("ended") and (now - j["ended"]) < within]
+
+
+def spoken_completion(job: dict) -> str:
+    """What Jarvis says when this job finishes. Prefer the job's own done_message; otherwise
+    derive a natural line from the title ('Installing OBS Studio' -> 'OBS Studio has finished
+    installing')."""
+    if job.get("state") == "error":
+        d = job.get("detail", "")
+        return f"{job.get('title', 'A task')} didn't finish{' — ' + d if d else ''}."
+    if job.get("done_message"):
+        return job["done_message"]
+    title = job.get("title", "The task")
+    m = re.match(r"(?i)installing\s+(.+)", title)
+    if m:
+        return f"{m.group(1)} has finished installing."
+    m = re.match(r"(?i)downloading\s+(.+)", title)
+    if m:
+        return f"{m.group(1)} has finished downloading."
+    return f"{title} — finished."
+
+
+def mark_announced(job_id: str) -> None:
+    with _LOCK:
+        jobs = _load()
+        for j in jobs:
+            if j.get("id") == job_id:
+                j["announced"] = True
                 break
         _save(jobs)
 

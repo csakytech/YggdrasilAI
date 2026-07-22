@@ -133,7 +133,8 @@ class SoftwareAgent(BaseAgent):
         import threading
 
         job_id = f"install-{pkg}"
-        jobs.start(job_id, "Software", f"Installing {spoken}", time.time())
+        jobs.start(job_id, "Software", f"Installing {spoken}", time.time(),
+                   done_message=f"{spoken} has finished installing. Say “open {spoken}” to start it.")
 
         def worker() -> None:
             ok, detail = False, ""
@@ -167,7 +168,9 @@ class SoftwareAgent(BaseAgent):
         if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
             return
         try:
-            subprocess.Popen(["yggdrasil-tasks"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # --autoclose: Jarvis opened this for the install, so it closes itself once done.
+            subprocess.Popen(["yggdrasil-tasks", "--autoclose"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
 

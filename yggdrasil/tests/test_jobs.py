@@ -117,3 +117,30 @@ async def test_mishearing_asks_did_you_mean(monkeypatch):
     assert ag._pending and ag._pending["pkg"] == "obs-studio"
     # and it NEVER claims to be installing something it isn't
     assert "installing" not in out["speech"].lower()
+
+
+# ---- spoken completion + announce-once (Jarvis says when a job finishes) ----
+
+def test_spoken_completion_phrasing():
+    assert jobs.spoken_completion(
+        {"state": "done", "title": "Installing OBS Studio", "done_message": ""}
+    ) == "OBS Studio has finished installing."
+    # a job with its own message wins (the "200,000 bottles" case)
+    assert jobs.spoken_completion(
+        {"state": "done", "title": "Counting bottles",
+         "done_message": "I have finished counting 200,000 bottles."}
+    ) == "I have finished counting 200,000 bottles."
+    # failures are announced honestly, not as success
+    fail = jobs.spoken_completion({"state": "error", "title": "Installing Foo", "detail": "no network"})
+    assert "didn't finish" in fail and "no network" in fail
+
+
+def test_announce_once(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    jobs.start("j1", "Software", "Installing OBS Studio", 0.0,
+               done_message="OBS Studio has finished installing.")
+    jobs.finish("j1", 5.0, ok=True)
+    pending = jobs.unannounced_finished(6.0)
+    assert len(pending) == 1 and pending[0]["id"] == "j1"
+    jobs.mark_announced("j1")
+    assert jobs.unannounced_finished(6.0) == []   # never announced twice
