@@ -1,10 +1,13 @@
 {
-  "version": "1.5.0",
-  "tag": "v1.5.0",
+  "version": "1.5.2",
+  "tag": "v1.5.2",
   "changelog": [
-    "👁️ Jarvis can see your screen — \"what am I looking at?\", \"read the screen\", \"what does this error say?\" He screenshots the screen and describes it aloud with a vision model running entirely on your own machine. Nothing leaves your computer.",
-    "🔒 Private by construction — the screenshot and the vision model both stay local.",
-    "♿ Reads and understands what's on screen for anyone who can't see it well — the point of ThorOS.",
-    "ℹ️ First look downloads the vision model (~3 GB, once); after that it's instant and works offline. Look-don't-touch by design — acting on what he sees comes next, and will always ask first."
+    "🖱️ Click by sight — \"click the Watch Demo button\", \"press the X\", \"scroll down\". The vision model finds the element you named on screen and clicks it. He never clicks blind: if he can't find it, he says so and does nothing.",
+    "🤫 Looking is invisible — capturing the screen no longer makes a shutter sound or a white flash, so Jarvis can look without interrupting you.",
+    "📋 A Tasks window — installing software no longer freezes the conversation. It runs as a tracked background job, and a window shows who's working, on what, for how long, with a live progress bar. It opens itself when work starts and tidies away when it's done.",
+    "✅ Honest about his work — \"how's the install going?\" reads the real state of the job, never a guess, and he says when it's finished (\"OBS Studio has finished installing\"). A failure is announced as a failure.",
+    "❓ \"Did you mean OBS Studio?\" — a misheard app name becomes a question you confirm, not a silent swap and not invented progress.",
+    "🔗 Spoken web addresses open instead of searching — \"open up the yggdrasilai.org website\" goes to the site; filler words no longer knock a good address into a web search.",
+    "👁️ Jarvis wakes a blanked display before looking, instead of describing a black rectangle."
   ]
 }
