@@ -10,6 +10,10 @@ YGG_EDITION="${YGG_EDITION:-online}"
 mkdir -p config/includes.chroot/etc
 echo "YGG_EDITION=${YGG_EDITION}" > config/includes.chroot/etc/yggdrasil-edition.env
 
+# --bootappend-install caps the installer's DHCP waits. A live install copies the squashfs and
+# needs no network, but netcfg still probes; on a NIC that can't reach a DHCP server the IPv6
+# step sits silently for minutes and reads as a freeze to a first-time user (reported by a
+# GitHub user on 1.4/1.5). 15s each still succeeds on any sane LAN.
 lb config noauto \
     --distribution trixie \
     --archive-areas "main contrib non-free non-free-firmware" \
@@ -18,6 +22,7 @@ lb config noauto \
     --architectures amd64 \
     --linux-flavours amd64 \
     --bootappend-live "boot=live components quiet splash" \
+    --bootappend-install "netcfg/dhcp_timeout=15 netcfg/dhcpv6_timeout=15" \
     --iso-application "Yggdrasil OS" \
     --iso-publisher "Yggdrasil" \
     --iso-volume "Yggdrasil-${YGG_EDITION}" \
