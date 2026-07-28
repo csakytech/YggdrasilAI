@@ -547,8 +547,25 @@ _DEV_MODE_RE = re.compile(
     r"|^\s*(?:(?:hey\s+)?[a-z]+,\s+)?(?:let'?s|i(?:'d| would)? (?:like|want) to|i wanna|can we)\s+"
     r"(?:build|make|create|develop|write|code|start(?: on)?)\s+(?:me\s+)?(?:something|a project)\b",
     re.I)
+# Every natural way out. The original list was cancel|stop|abort|quit|end, so "EXIT development
+# mode" and "CLOSE development mode" missed it entirely and fell through to the window handler,
+# which answered "there's nothing to close" — leaving the user still inside a mode that captures
+# everything they say, having just been told they were out of it. Getting OUT of a mode must
+# never depend on guessing the one blessed verb.
 _DEV_CANCEL_RE = re.compile(
-    r"^\s*(?:cancel|stop|abort|quit|end)(?: the| this)? ?(?:development|dev ?mode|mission|project)\b", re.I)
+    r"^\s*(?:(?:i(?:'d| would)? like to |i want to |please |can you |let'?s )*)"
+    # Adding "close" to the verbs collides with _DEV_WIN_RE: "close the development WINDOW" means
+    # put the plan away, not throw the project out. Anything naming the window/plan/log/screen is
+    # a display request, so it is excluded here and falls through to the window handler.
+    r"(?!.*\b(?:window|screen|log|plan)\b)"
+    r"(?:cancel|stop|abort|quit|end|exit|close|leave|get out of|forget|drop|finish)"
+    r"(?: the| this| that)? ?(?:development|dev ?mode|mission|project)\b", re.I)
+# "What mode are you in?" — a user who has forgotten (the reason the HUD pill exists) must be
+# able to simply ASK, and get a deterministic answer rather than the model's impression.
+_MODE_QUERY_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?(?:can you |please |tell me )*"
+    r"(?:what|which)\s+mode\s+(?:are\s+you|am\s+i|are\s+we|is\s+this)\s*(?:in|on)?\b"
+    r"|^\s*(?:are\s+you|am\s+i|are\s+we)\s+(?:still\s+)?in\s+(?:development|dev)\s*mode\b", re.I)
 _DEV_WIN_RE = re.compile(
     r"^\s*(?:can you |could you |please )?(show(?: me)?|open|display|pull up|bring up|close|hide|dismiss)"
     r"\s+(?:the |my )?(?:mission|development (?:plan|mission|window))\b", re.I)
@@ -1051,6 +1068,19 @@ class Orchestrator:
             ridx = _help_run_index(goal)
             if ridx is not None:
                 return await self._run_help_command(ridx)
+        # "What mode are you in?" — answered from the mission FILE, never the model, and checked
+        # before the mission-focus redirect (same reasoning as Smart Help above) so that asking
+        # mid-interview reports the mode instead of being filed as project description.
+        if _MODE_QUERY_RE.match(goal.strip()):
+            self._publish("")
+            try:
+                in_mission = mission.active()
+            except Exception:
+                in_mission = False
+            if in_mission:
+                return ("I'm in Development Mode, working on a project with you. Say “cancel "
+                        "development” to leave it — or “show the mission” to see the plan.")
+            return "No special mode — just me, ready for anything."
         # FOCUS. While a Development mission is mid-setup it IS the topic. A FOLLOW-UP (no name)
         # continues it — the answer to the assistant's question — so it never leaks to a global
         # route or a mishearing-driven topic jump. Saying the NAME signals a possible topic change,
