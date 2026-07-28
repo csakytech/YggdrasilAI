@@ -1,0 +1,35 @@
+#!/bin/sh
+# Switch GDM between hands-free sign-in and a password prompt. Invoked via `sudo -n` from the
+# Welcome window (/etc/sudoers.d/yggdrasil-login, %sudo NOPASSWD — same trust pattern as
+# yggdrasil-power). The single argument is strictly validated: one of two literal verbs, nothing
+# else can pass through.
+#
+# ThorOS defaults to hands-free because someone who cannot use a keyboard must be able to reach
+# the desktop unaided. But it is a general-purpose OS too, and plenty of people want a password
+# on their machine — so the choice is offered rather than imposed.
+set -u
+
+CONF=/etc/gdm3/daemon.conf
+STAMP=/var/lib/yggdrasil/.autologin-configured
+
+case "${1:-}" in
+    auto|password) MODE="$1" ;;
+    *) echo "usage: yggdrasil-login-mode auto|password" >&2; exit 2 ;;
+esac
+
+[ -f "$CONF" ] || { echo "no $CONF" >&2; exit 1; }
+mkdir -p /var/lib/yggdrasil
+
+# Strip any existing directives first so repeated switches can't stack duplicates.
+sed -i '/^AutomaticLoginEnable/d; /^AutomaticLogin=/d' "$CONF"
+
+if [ "$MODE" = auto ]; then
+    FIRST_USER=$(awk -F: '$3==1000{print $1; exit}' /etc/passwd)
+    [ -n "$FIRST_USER" ] || { echo "no primary user" >&2; exit 1; }
+    printf 'AutomaticLoginEnable=true\nAutomaticLogin=%s\n' "$FIRST_USER" >> "$CONF"
+fi
+
+# Record that a DELIBERATE choice now exists, so yggdrasil-autologin.service never re-imposes
+# hands-free login on someone who asked for a password.
+touch "$STAMP"
+echo "login mode: $MODE"

@@ -1,0 +1,4 @@
+# Let the Welcome window switch between hands-free sign-in and a password prompt via the
+# validated helper (two whitelisted verbs, nothing else). Members of the sudo group only.
+# Same trust pattern as /etc/sudoers.d/yggdrasil-power.
+%sudo ALL=(root) NOPASSWD: /usr/local/sbin/yggdrasil-login-mode auto, /usr/local/sbin/yggdrasil-login-mode password

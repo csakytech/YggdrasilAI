@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,8 +21,22 @@ from gi.repository import GLib, Gtk  # noqa: E402
 
 STATUS_FILE = "/run/yggdrasil/status"
 STAMP_FILE = "/var/lib/yggdrasil/.firstboot-done"
+GDM_CONF = "/etc/gdm3/daemon.conf"
+LOGIN_HELPER = "/usr/local/sbin/yggdrasil-login-mode"
 FLAG = Path.home() / ".config" / "yggdrasil" / "welcomed"
 _PCT = re.compile(r"(\d{1,3})%")
+
+
+def _autologin_on() -> bool:
+    """True when GDM is set to sign in without a password. Missing/unreadable config reads as
+    False so the switch never *claims* hands-free sign-in that isn't actually configured."""
+    try:
+        for line in Path(GDM_CONF).read_text(encoding="utf-8").splitlines():
+            if line.strip().lower().startswith("automaticloginenable"):
+                return line.split("=", 1)[-1].strip().lower() == "true"
+    except Exception:
+        pass
+    return False
 
 CSS = """
 .w-title { font-size: 26px; font-weight: 800; }
@@ -77,6 +92,35 @@ class WelcomeWindow(Gtk.ApplicationWindow):
         sbox.append(self.hint_lbl)
         frame.set_child(sbox)
         outer.append(frame)
+
+        # --- sign-in choice. ThorOS defaults to hands-free because someone who cannot use a
+        #     keyboard has to reach the desktop unaided — but it's a general-purpose OS too, and
+        #     plenty of people want a password. Offer the choice instead of imposing either. ---
+        lframe = Gtk.Frame()
+        lbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        lbox.add_css_class("w-card")
+        lhead = Gtk.Label(label="🔐  Signing in", xalign=0)
+        lhead.add_css_class("w-tiph")
+        lbox.append(lhead)
+
+        lrow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        lrow_lbl = Gtk.Label(label="Start straight to the desktop, without typing a password",
+                             xalign=0, wrap=True, hexpand=True)
+        lrow_lbl.add_css_class("w-tip")
+        lrow.append(lrow_lbl)
+        self.login_sw = Gtk.Switch()
+        self.login_sw.set_valign(Gtk.Align.CENTER)
+        self.login_sw.set_active(_autologin_on())
+        self.login_sw.connect("state-set", self._login_toggled)
+        lrow.append(self.login_sw)
+        lbox.append(lrow)
+
+        self.login_note = Gtk.Label(xalign=0, wrap=True)
+        self.login_note.add_css_class("w-sub")
+        self._set_login_note(self.login_sw.get_active())
+        lbox.append(self.login_note)
+        lframe.set_child(lbox)
+        outer.append(lframe)
 
         # --- tips ---
         tips = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
@@ -142,6 +186,30 @@ class WelcomeWindow(Gtk.ApplicationWindow):
             self.bar.pulse()
         self.status_lbl.set_text(text)
         return True
+
+    def _set_login_note(self, on: bool) -> None:
+        self.login_note.set_text(
+            "On — the computer is usable by voice from the moment it starts. Turn this off if "
+            "you'd rather type your password each time."
+            if on else
+            "Off — you'll be asked for your password every time the computer starts. Note that "
+            "until you sign in, the assistant can't hear you."
+        )
+
+    def _login_toggled(self, _sw: Gtk.Switch, state: bool) -> bool:
+        """Apply the choice through the validated root helper. Returning True on failure blocks
+        the visual toggle, so the switch can never show a setting that wasn't actually applied."""
+        mode = "auto" if state else "password"
+        try:
+            subprocess.run(["sudo", "-n", LOGIN_HELPER, mode],
+                           check=True, capture_output=True, timeout=15)
+        except Exception:
+            self.login_note.set_text(
+                "Couldn't change the sign-in setting. You can set it later in Settings."
+            )
+            return True
+        self._set_login_note(state)
+        return False
 
     def _dismiss(self, _btn: Gtk.Button) -> None:
         try:

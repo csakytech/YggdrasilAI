@@ -2,5 +2,6 @@
 # Enable hands-free login so it applies on the FIRST boot, not the second.
 set -e
 
-chmod 0755 /usr/local/sbin/yggdrasil-autologin
+chmod 0755 /usr/local/sbin/yggdrasil-autologin /usr/local/sbin/yggdrasil-login-mode
+chmod 0440 /etc/sudoers.d/yggdrasil-login
 systemctl enable yggdrasil-autologin.service
