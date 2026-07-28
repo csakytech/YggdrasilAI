@@ -1,0 +1,26 @@
+#!/bin/sh
+# Bake the Whisper STT model — the EARS. 0500 already bakes the Piper voice (the mouth) and 0600
+# bakes the starter LLM (the brain), but faster-whisper was left to fetch its model from
+# HuggingFace on FIRST RUN. Two real failures on the v1.5.2 install:
+#   1. Autostart launches 4s into the session, before DNS is up, and Jarvis CRASHED outright:
+#      huggingface_hub.errors.LocalEntryNotFoundError: ConnectError: [Errno -3] Temporary
+#      failure in name resolution   (voice/stt.py -> WhisperModel -> download_model)
+#      No retry, no message — the assistant is simply dead until started by hand.
+#   2. An offline machine could never hear at all: it could think (baked LLM) but not listen,
+#      which makes "unplug the internet and it still works" untrue for a VOICE-first OS.
+# Bake into a shared cache under /opt so every user can read it; the launchers export the same
+# HF_HOME so faster-whisper finds it locally and never reaches for the network.
+set -e
+echo "I: yggdrasil — baking the Whisper STT model"
+
+export HF_HOME=/opt/yggdrasil/hf-cache
+mkdir -p "$HF_HOME"
+
+# base.en is the CPU tier in voice/stt.py — the model EVERY machine falls back to when the GPU
+# large-v3-turbo path isn't available, and precisely where the crash happened. ~150MB.
+# Deliberately NOT '|| true': a build that can't bake the ears must FAIL, not ship a deaf image
+# (same rule as the starter-model bake in 0600).
+/opt/yggdrasil/venv/bin/python -c "from faster_whisper.utils import download_model; print('I: yggdrasil — Whisper base.en baked at', download_model('base.en'))"
+
+chmod -R a+rX /opt/yggdrasil/hf-cache
+echo "I: yggdrasil — Whisper bake complete"

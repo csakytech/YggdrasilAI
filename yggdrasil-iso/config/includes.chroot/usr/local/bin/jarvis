@@ -2,6 +2,13 @@
 # Voice assistant launcher (system-wide install). The app lives in /opt/yggdrasil with its venv;
 # the chosen model is written by first-boot to /etc/yggdrasil/model.env.
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+# Whisper's model is baked into this shared cache by 0550-bake-whisper — point faster-whisper at
+# it so STT never reaches for HuggingFace. Without it, startup raced DNS and crashed outright.
+export HF_HOME=${HF_HOME:-/opt/yggdrasil/hf-cache}
+# Screen-waking (xset/gdbus) and any window the assistant opens need a display. A session launch
+# already has one; this only rescues a hand-started instance (e.g. over SSH while debugging),
+# which otherwise gets the mic but silently can't wake the screen or open the dashboard.
+export DISPLAY=${DISPLAY:-:0}
 [ -f /etc/yggdrasil/model.env ] && . /etc/yggdrasil/model.env
 export YGGDRASIL_MODEL=${YGGDRASIL_MODEL:-qwen3:8b}
 export YGGDRASIL_VOICE_MODEL=${YGGDRASIL_VOICE_MODEL:-/opt/yggdrasil/voices/en_US-lessac-medium.onnx}

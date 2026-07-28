@@ -18,16 +18,14 @@ log() { echo "yggdrasil-firstboot: $*"; }
 setup_status() { echo "$*" > /run/yggdrasil/status 2>/dev/null; chmod 644 /run/yggdrasil/status 2>/dev/null || true; }
 setup_status "Starting first-time setup…"
 
-# --- Hands-free login: a voice-first OS must not park a keyboard-only login screen in front
-#     of the very people it's built for. Enable GDM autologin for the primary user (UID 1000)
-#     so the machine boots straight to the desktop with the assistant listening (also lets
-#     scheduled briefings fire without a manual login). Turn it off anytime in
-#     Settings > Users, or remove the two lines from /etc/gdm3/daemon.conf. ---
+# --- Hands-free login MOVED OUT of this script (1.5.3). It lived here, but this unit is
+#     After=network-online.target ollama.service and timer-driven, so it ran long after GDM had
+#     already drawn a login screen — autologin only took effect on the SECOND boot, and the first
+#     boot demanded a typed password from the very people the OS exists for. It now lives in
+#     yggdrasil-autologin.service, ordered Before=display-manager.service.
+#     Do NOT re-add it here: this script's old check was "is AutomaticLoginEnable absent?", which
+#     would silently re-impose autologin on a user who had deliberately chosen a password. ---
 FIRST_USER=$(awk -F: '$3==1000{print $1; exit}' /etc/passwd)
-if [ -n "$FIRST_USER" ] && ! grep -q '^AutomaticLoginEnable' /etc/gdm3/daemon.conf 2>/dev/null; then
-    printf 'AutomaticLoginEnable=true\nAutomaticLogin=%s\n' "$FIRST_USER" >> /etc/gdm3/daemon.conf
-    log "GDM autologin enabled for ${FIRST_USER}"
-fi
 
 # --- The Debian installer only puts the first user in the sudo group when NO root password was
 #     set during install; set one and you get a user who can't administer their own machine —

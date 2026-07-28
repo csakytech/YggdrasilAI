@@ -1,0 +1,17 @@
+[Unit]
+Description=Yggdrasil hands-free login (GDM autologin for the primary user)
+Documentation=man:gdm3(8)
+# The whole point: write autologin BEFORE the display manager reads its config, so the very
+# first boot lands on the desktop instead of a keyboard-only login screen. Doing this from
+# yggdrasil-firstboot.service was too late — that unit waits on the network and a model pull.
+Before=display-manager.service
+After=local-fs.target
+ConditionPathExists=!/var/lib/yggdrasil/.autologin-configured
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/yggdrasil-autologin
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

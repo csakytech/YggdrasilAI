@@ -1,0 +1,32 @@
+#!/bin/sh
+# Enable GDM autologin for the primary user, BEFORE the display manager starts.
+#
+# This used to live in yggdrasil-firstboot.sh, but that unit is After=network-online.target
+# ollama.service and timer-driven, so it ran minutes after GDM had already drawn a login screen:
+# autologin only took effect on the SECOND boot. On a voice-first OS built so that people who
+# cannot use a keyboard can operate a computer, a first boot that demands a typed password is an
+# unusable machine. This unit needs nothing but /etc/passwd, so it runs early and gets it right
+# the first time.
+#
+# Not a security downgrade by stealth: the Welcome window offers "require a password instead",
+# and it can be turned off any time by removing the two lines below from /etc/gdm3/daemon.conf.
+set -u
+
+CONF=/etc/gdm3/daemon.conf
+STAMP=/var/lib/yggdrasil/.autologin-configured
+
+# Respect a user who has already chosen: once they've decided, never re-impose autologin.
+[ -f "$STAMP" ] && exit 0
+[ -f "$CONF" ] || exit 0
+
+FIRST_USER=$(awk -F: '$3==1000{print $1; exit}' /etc/passwd)
+[ -n "$FIRST_USER" ] || exit 0
+
+mkdir -p /var/lib/yggdrasil
+
+if ! grep -q '^AutomaticLoginEnable' "$CONF" 2>/dev/null; then
+    printf 'AutomaticLoginEnable=true\nAutomaticLogin=%s\n' "$FIRST_USER" >> "$CONF"
+    echo "yggdrasil-autologin: enabled hands-free login for ${FIRST_USER}"
+fi
+
+touch "$STAMP"
