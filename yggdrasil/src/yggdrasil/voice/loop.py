@@ -25,7 +25,7 @@ import threading
 import time
 from pathlib import Path
 
-from ..core import config
+from ..core import config, conversation
 
 SR = 16000
 BLOCK = 1280  # 80 ms frames — openWakeWord's expected input size
@@ -228,6 +228,11 @@ class VoiceAssistant:
             print(f"you (voice) > {command}{'' if addressed else '  [follow-up]'}", flush=True)
             reply, over = self.on_text(command, addressed)
             print(f"jarvis > {reply}", flush=True)
+            # Same pair the Conversation window shows. Recorded here rather than deeper in the
+            # orchestrator because THIS is the transcript as heard — the exact text routing saw,
+            # which is the thing you need when an answer looks wrong and you can't tell whether
+            # it misheard you or misunderstood you. No-ops unless the user turned the log on.
+            conversation.record(command, reply, addressed)
             prefill = self._speak_with_bargein(reply)
             if prefill is None:
                 return 0.0 if over else time.time() + CONVERSATION_WINDOW_S

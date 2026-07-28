@@ -73,8 +73,9 @@ if [ -f "$PWR_SUDO" ] && [ ! -f /etc/sudoers.d/yggdrasil-power ]; then
     install -m 440 "$PWR_SUDO" /etc/sudoers.d/yggdrasil-power || true
 fi
 
-# --- v1.4/1.5.2: GTK window launchers (Settings, Tasks) + their app entries on existing installs
-for w in settings tasks; do
+# --- v1.4/1.5.2/1.5.4: GTK window launchers + their app entries on existing installs
+# (1.5.4 adds `conversation` — the "what did you actually hear?" window)
+for w in settings tasks conversation; do
     SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/local/bin/yggdrasil-$w
     DESK=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/share/applications/yggdrasil-$w.desktop
     [ -f "$SRC" ] && install -m 755 "$SRC" /usr/local/bin/yggdrasil-$w || true

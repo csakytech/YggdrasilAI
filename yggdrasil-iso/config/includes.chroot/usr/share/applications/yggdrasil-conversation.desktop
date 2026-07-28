@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Conversation
+Comment=What Jarvis heard you say, and what he replied
+Exec=yggdrasil-conversation
+Icon=utilities-terminal
+Terminal=false
+Categories=Utility;
+Keywords=conversation;transcript;heard;history;voice;log;

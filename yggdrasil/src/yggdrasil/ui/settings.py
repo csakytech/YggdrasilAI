@@ -57,6 +57,21 @@ class SettingsWindow(Gtk.Window):
                       "Takes effect the next time the assistant starts.",
                       self._duplex)
 
+        # --- Conversation log ---
+        # Off by default: it records what you say to the assistant, so it is the user's call.
+        # Worth having on when something goes wrong, because "it misheard me" and "it understood
+        # and chose badly" look identical from the outside until you can see the transcript.
+        self._convlog = Gtk.Switch()
+        self._convlog.set_active(config.get_conversation_log())
+        self._convlog.set_halign(Gtk.Align.START)
+        self._convlog.connect("notify::active",
+                              lambda s, _p: config.set_conversation_log(s.get_active()))
+        self._add_row("Conversation log",
+                      "Keep the last few things you said and what Jarvis replied, so you can "
+                      "check what he actually heard. Open it from the Conversation app. Stored "
+                      "on this machine only.",
+                      self._convlog)
+
         # --- Web search engine ---
         self._engine = Gtk.ComboBoxText()
         for eid, label in (("duckduckgo", "DuckDuckGo (private, no CAPTCHAs)"),

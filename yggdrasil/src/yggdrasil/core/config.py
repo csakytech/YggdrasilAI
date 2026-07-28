@@ -105,6 +105,22 @@ def set_duplex(on: bool) -> None:
     _save(cfg)
 
 
+def get_conversation_log() -> bool:
+    """Keep a short rolling log of what was HEARD and what was replied, for the Conversation
+    window. OFF by default: it records everything spoken to the assistant, so it is the user's
+    call. Invaluable while developing — misheard and misunderstood look identical from outside."""
+    env = os.environ.get("YGGDRASIL_CONVERSATION_LOG")
+    if env is not None:
+        return env != "0"
+    return bool(_raw().get("conversation_log", False))
+
+
+def set_conversation_log(on: bool) -> None:
+    cfg = _raw()
+    cfg["conversation_log"] = bool(on)
+    _save(cfg)
+
+
 def get_chat_pref() -> tuple[str, str]:
     """The Chat window's remembered setup: (mode, model). mode is 'assistant' (route through
     the agents — types like the voice loop) or 'chat' (pure conversation with the local model);

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Conversation window (GTK): what Jarvis heard and what he replied, with scrollback.
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+exec /opt/yggdrasil/venv/bin/python -m yggdrasil.ui.conversation "$@"
