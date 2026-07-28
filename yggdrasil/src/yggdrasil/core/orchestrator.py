@@ -322,7 +322,7 @@ _SYSINFO_RE = re.compile(
     r"(?:can you |could you |please |find out |check |tell me |show me |do you know )*"
     r"(?:what(?:'s| is| are)?|how much|how many|how big|how long|what kind of)?\s*"
     r".{0,30}?\b(?:"
-    r"(?:local|internal|external|public|my)\s+ip\b|ip address\b|"
+    r"(?:local|internal|external|public|internet|outside|wan|my)\s+ip\b|ip address\b|"
     r"memory(?: does| is| in)|ram\b|"
     r"cpu\b|processor\b|"
     r"gpu\b|graphics card\b|video card\b|"
@@ -330,6 +330,22 @@ _SYSINFO_RE = re.compile(
     r"kernel\b|battery\b|uptime\b|"
     r"(?:which|what) (?:os|operating system|version of thoros)"
     r")",
+    re.I,
+)
+
+# An unmistakable QUESTION opener. A Development mission mid-interview captures every follow-up
+# (the FOCUS block in _handle) — correct when the user is answering, badly wrong when the wake
+# NAME was misheard and a plain question arrived looking like a follow-up. Live case: "What is my
+# internet IP?" was appended verbatim to the project DESCRIPTION and answered with "Got it.
+# Anything else about it?", with no way out but a phrase ("cancel development") the interview
+# never mentions. The interrogative opener is the discriminator: it separates "what is my IP?"
+# from a genuine description like "it needs to show my ip address", which must STILL reach the
+# mission. Deliberately strict — stealing a real interview answer is worse than missing one
+# question, because the user can simply say the name to escape.
+_QUESTION_OPENER_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?"
+    r"(?:can you |could you |please |tell me |show me |check |find out |do you know )*"
+    r"(?:what|which|who|where|when|how much|how many|how long|how big)\b",
     re.I,
 )
 
@@ -1044,7 +1060,14 @@ class Orchestrator:
         in_dev = self._pending_reply is not None or (
             mission.active() and mission.load().get("stage") in ("describe", "interview", "proposal"))
         if in_dev and not addressed:
-            return await self._answer_dev(goal)
+            # ...UNLESS it is plainly a factual question the machine can answer for itself. The
+            # name is the intended way to change topic, but a MISHEARD name ("Jarvis" -> "Drawers")
+            # makes an addressed question look like a follow-up, and the describe stage files
+            # whatever it hears as project description. Answer the question and leave the mission
+            # running — it stays resumable, and the HUD shows the user they're still in it.
+            preempt = _QUESTION_OPENER_RE.match(goal) and _SYSINFO_RE.search(goal)
+            if not preempt:
+                return await self._answer_dev(goal)
         if _REPEAT_RE.match(goal.strip()):  # "repeat that" -> the last reply, verbatim (vital
             self._publish("")               # with barge-in, which can cut a reply mid-sentence)
             if self._dialogue:

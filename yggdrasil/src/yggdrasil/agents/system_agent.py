@@ -134,7 +134,11 @@ class SystemAgent(BaseAgent):
     def classify(question: str) -> str:
         """Map a spoken question to an info topic. Order matters: 'external ip' contains 'ip'."""
         q = question.lower()
-        if re.search(r"\b(?:external|public|internet|outside)\b.*\bip\b|\bip\b.*\b(?:external|public)\b", q):
+        # Both directions must list the SAME words: "my IP on the internet" used to fall through
+        # to local_ip because the trailing alternative omitted internet/outside, and answering a
+        # question about the public address with 10.0.0.x looks like a plain wrong answer.
+        _EXT = r"external|public|internet|outside|wan"
+        if re.search(rf"\b(?:{_EXT})\b.*\bip\b|\bip\b.*\b(?:{_EXT})\b", q):
             return "external_ip"
         if re.search(r"\bip\b", q):
             return "local_ip"

@@ -186,14 +186,16 @@ class DevAgent(BaseAgent):
             mission.log(m, f"New project — initial description: {desc[:80]}")
             return {"speech": f"Development Mode. So far I've got: {desc}. Tell me anything else "
                               "about it — take your time — then say “that's it” or “go ahead” "
-                              "and I'll ask my questions.",
+                              "and I'll ask my questions. If you didn't mean to start a project, "
+                              "say “cancel development” and we're out.",
                     "await_reply": True, "agent": self.domain}
         mission.save(m)
         mission.log(m, "Development Mode entered — awaiting the project description.")
         return {"speech": "Development Mode entered. Tell me what you'd like to build — describe "
                           "it however you like, take your time, and it can be as long as you "
                           "need. Say “that's it” or “go ahead” when you're done and I'll ask "
-                          "specific questions.",
+                          "specific questions. If you didn't mean to start a project, say "
+                          "“cancel development” and we're out.",
                 "await_reply": True, "agent": self.domain}
 
     async def _finish_describe(self, m: dict):
