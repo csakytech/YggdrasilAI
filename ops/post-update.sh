@@ -94,4 +94,31 @@ if [ -f "$DCONF_SRC" ] && [ -d /etc/dconf/db ]; then
     dconf update >/dev/null 2>&1 || true
 fi
 
+# --- v1.5.3: the sign-in choice ---------------------------------------------------------------
+# The Welcome window now offers hands-free sign-in vs a password, applied through a validated
+# root helper. Existing installs have the new UI after this update but would have no helper to
+# call, so install it (+ its sudoers drop-in) here.
+LGN_SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/local/sbin/yggdrasil-login-mode
+LGN_SUDO=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/etc/sudoers.d/yggdrasil-login
+[ -f "$LGN_SRC" ] && install -m 755 "$LGN_SRC" /usr/local/sbin/yggdrasil-login-mode || true
+if [ -f "$LGN_SUDO" ] && [ ! -f /etc/sudoers.d/yggdrasil-login ]; then
+    install -m 440 "$LGN_SUDO" /etc/sudoers.d/yggdrasil-login || true
+fi
+
+# --- v1.5.3: hands-free login on the FIRST boot ------------------------------------------------
+# New ISOs enable autologin before GDM starts (it used to be written by firstboot, far too late,
+# so it only took effect on the second boot). Install the unit here for consistency, but STAMP it
+# immediately: this machine has already been through first boot and its login state is settled —
+# re-imposing autologin on someone who deliberately chose a password would be a nasty surprise.
+ALG_SRC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/usr/local/sbin/yggdrasil-autologin
+ALG_SVC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/etc/systemd/system/yggdrasil-autologin.service
+if [ -f "$ALG_SRC" ] && [ -f "$ALG_SVC" ]; then
+    install -m 755 "$ALG_SRC" /usr/local/sbin/yggdrasil-autologin || true
+    install -m 644 "$ALG_SVC" /etc/systemd/system/yggdrasil-autologin.service || true
+    mkdir -p /var/lib/yggdrasil
+    touch /var/lib/yggdrasil/.autologin-configured || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable yggdrasil-autologin.service >/dev/null 2>&1 || true
+fi
+
 exit 0

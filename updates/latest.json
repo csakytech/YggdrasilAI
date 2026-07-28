@@ -1,13 +1,12 @@
 {
-  "version": "1.5.2",
-  "tag": "v1.5.2",
+  "version": "1.5.3",
+  "tag": "v1.5.3",
   "changelog": [
-    "🖱️ Click by sight — \"click the Watch Demo button\", \"press the X\", \"scroll down\". The vision model finds the element you named on screen and clicks it. He never clicks blind: if he can't find it, he says so and does nothing.",
-    "🤫 Looking is invisible — capturing the screen no longer makes a shutter sound or a white flash, so Jarvis can look without interrupting you.",
-    "📋 A Tasks window — installing software no longer freezes the conversation. It runs as a tracked background job, and a window shows who's working, on what, for how long, with a live progress bar. It opens itself when work starts and tidies away when it's done.",
-    "✅ Honest about his work — \"how's the install going?\" reads the real state of the job, never a guess, and he says when it's finished (\"OBS Studio has finished installing\"). A failure is announced as a failure.",
-    "❓ \"Did you mean OBS Studio?\" — a misheard app name becomes a question you confirm, not a silent swap and not invented progress.",
-    "🔗 Spoken web addresses open instead of searching — \"open up the yggdrasilai.org website\" goes to the site; filler words no longer knock a good address into a web search.",
-    "👁️ Jarvis wakes a blanked display before looking, instead of describing a black rectangle."
+    "🎧 Speech recognition now ships inside the ISO — ThorOS has always run the AI on your own machine, but the part that LISTENS used to download itself the first time you spoke. Fresh installs no longer wait for it, and a machine with no internet can finally hear you.",
+    "🔓 Your computer starts ready to listen — hands-free sign-in now applies on the FIRST boot, not the second, so someone who can't use a keyboard is never stuck at a login screen.",
+    "🔐 You choose how you sign in — the welcome screen asks whether to start straight to the desktop or require your password. Hands-free is the default; it's your machine.",
+    "🐛 Fixed: Jarvis could fail to start on a new install and stay silent until launched by hand — he was reaching for the speech model before the network was awake.",
+    "🐛 Fixed: the \"Thinking…\" status strip has been shipping in a state where it could never launch. It works now.",
+    "ℹ️ Known issue: installing with no network cable connected can stall on \"Updating the list of available packages\". Install connected — you can unplug afterwards and the voice keeps working."
   ]
 }
