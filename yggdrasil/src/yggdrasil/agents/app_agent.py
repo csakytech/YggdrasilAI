@@ -256,12 +256,50 @@ class AppsAgent(BaseAgent):
         self._track_launched(before)  # so the next command routes to it
         return f"Opening {label or name}."
 
+    # Modifiers stack in any order — "all OPEN windows" (the live miss), "all my apps",
+    # "the open programs". The noun list is what keeps "all my documents" out of here.
+    _CLOSE_ALL_RE = re.compile(
+        r"^(?:all|everything|"
+        r"(?:all\s+|the\s+|my\s+|open\s+|currently\s+)*"
+        r"(?:windows?|apps?|applications?|programs?))$", re.I)
+
+    def _close_all(self) -> str:
+        """Close every ordinary window. Uses the same GRACEFUL wmctrl close as _close, so an app
+        with unsaved work still gets to put up its own save prompt — we ask the window to go,
+        we don't kill the process. Skips our own always-on-top HUD, which isn't a window the
+        user thinks of as open, and sticky/desktop windows (the desktop itself, panels)."""
+        closed = 0
+        try:
+            for line in subprocess.run(["wmctrl", "-lx"], capture_output=True, text=True,
+                                       timeout=5).stdout.splitlines():
+                parts = line.split(None, 4)
+                if len(parts) < 3:
+                    continue
+                wm_class = parts[2].lower()
+                if parts[1] == "-1":          # sticky/desktop-level: the desktop, panels
+                    continue
+                if "hud" in wm_class:          # our own status strip
+                    continue
+                subprocess.run(["wmctrl", "-i", "-c", parts[0]], capture_output=True, timeout=5)
+                closed += 1
+        except Exception:
+            return "I couldn't reach the window manager to close anything."
+        if not closed:
+            return "There are no windows open."
+        self.last_app = None
+        return f"Closed {closed} window{'s' if closed != 1 else ''}."
+
     def _close(self, name: str) -> str:
         key = name.lower().strip()
         if key in ("it", "that", "this", "") and self.last_app:
             key = self.last_app
         if not key:
             return "Close what?"
+        # "close all open windows" used to be taken as an app literally named "all", answered
+        # with "all doesn't seem to be running" — which reads as the assistant having no idea
+        # what windows exist.
+        if self._CLOSE_ALL_RE.match(key):
+            return self._close_all()
         alias = _ALIASES.get(key, key)
         # Terms to match against a window's class+title (e.g. "dashboard" -> {dashboard, yggdrasil},
         # since the dashboard's WM_CLASS is org.yggdrasil.Dashboard).

@@ -204,7 +204,11 @@ _RENAME_RE = re.compile(
     r"(?:change your name to|call yourself|rename yourself(?: to| as)?|set your name to|"
     r"your name (?:is|will be)(?: now)?|from now on,?\s+(?:you'?re|your name is|call yourself)|"
     r"i(?:'?ll| will| want to| wanna) call you|we(?:'?ll| will) call you|"
-    r"you(?:'?ll| will| should| can)? ?(?:now )?(?:be|are) (?:called|named|known as)|"
+    # "you" is OPTIONAL here: the prefix group above already swallows "i want you to", leaving
+    # "be known as Amy" with no "you" left to match. Live miss: "Jarvis I want you to be known
+    # as Amy from now on" fell through to the LLM, which invents a "I can't rename myself"
+    # limitation, while "change your name to Amy" worked — same intent, different luck.
+    r"(?:you(?:'?ll| will| should| can)? ?)?(?:now )?(?:be|are) (?:called|named|known as)|"
     r"go by(?: the name(?: of)?)?)\s+(.+)$",
     re.I,
 )

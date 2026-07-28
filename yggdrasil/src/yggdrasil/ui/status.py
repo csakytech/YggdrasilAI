@@ -29,12 +29,26 @@ def agents_info() -> list[dict]:
     return out
 
 
+def _assistant_name() -> str:
+    """Imported lazily and defensively: this module is deliberately GUI-free and headless-safe,
+    and a dashboard must still render if the config is unreadable."""
+    try:
+        from ..core.config import get_name
+        return get_name()
+    except Exception:
+        return os.environ.get("YGGDRASIL_NAME", "Jarvis")
+
+
 def status_info() -> dict:
     return {
         "release": f"{__codename__} {__version__}",
         "model": os.environ.get("YGGDRASIL_MODEL", "(none — heuristic)"),
         "trust": os.environ.get("YGGDRASIL_TRUST", "guarded"),
-        "name": os.environ.get("YGGDRASIL_NAME", "Jarvis"),
+        # config.get_name(), NOT the env var: the dashboard launcher exports
+        # YGGDRASIL_NAME=${YGGDRASIL_NAME:-Jarvis}, so reading the environment here showed
+        # "Jarvis" forever no matter what the user renamed the assistant to. get_name() puts
+        # saved config first and falls back to the env, which is the intended precedence.
+        "name": _assistant_name(),
     }
 
 

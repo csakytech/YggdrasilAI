@@ -47,10 +47,10 @@ class ConversationWindow(Gtk.Window):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.add(box)
 
-        head = Gtk.Label()
-        head.set_markup(f"<big><b>What {self.name} heard</b></big>")
-        head.set_xalign(0.0)
-        box.pack_start(head, False, False, 0)
+        self._head = Gtk.Label()
+        self._head.set_markup(f"<big><b>What {self.name} heard</b></big>")
+        self._head.set_xalign(0.0)
+        box.pack_start(self._head, False, False, 0)
 
         self._list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self._scroll = Gtk.ScrolledWindow()
@@ -106,9 +106,18 @@ class ConversationWindow(Gtk.Window):
         return row
 
     def _tick(self) -> bool:
+        # Re-read the name every poll: renaming ("call yourself Amy") must show up in an ALREADY
+        # OPEN window. Caching it at construction left the new name invisible until you thought
+        # to close and reopen — small, but it makes the rename feel like it didn't take.
+        name = config.get_name()
+        if name != self.name:
+            self.name = name
+            self._head.set_markup(f"<big><b>What {name} heard</b></big>")
+            self._sig = None  # force a rebuild so existing rows re-label too
+
         on = config.get_conversation_log()
         items = conversation.read(limit=SHOW) if on else []
-        sig = (on, tuple((i.get("ts"), i.get("heard"), i.get("reply")) for i in items))
+        sig = (on, name, tuple((i.get("ts"), i.get("heard"), i.get("reply")) for i in items))
         if sig == self._sig:
             return True
         self._sig = sig
