@@ -781,7 +781,13 @@ def _model_route(goal: str):
 _MKT_CONFIRM = re.compile(
     r"^\s*(?:yes|yeah|yep|sure|okay|ok|confirm|go ahead|do it|please do|absolutely)\b"
     r".*\b(?:install|remove|uninstall)\b", re.I)
-_MKT_CANCEL = re.compile(r"^\s*(?:cancel|never ?mind|forget it|don'?t (?:install|remove))\b", re.I)
+# A bare "cancel" is the MARKETPLACE's only when it isn't naming something else. "Cancel
+# Development" used to land here — _market_route runs long before _dev_route — so the market
+# agent, with nothing staged, answered "There's nothing to cancel" while the Development mission
+# carried on quietly capturing every word the user said. Told they were out; still trapped.
+_MKT_CANCEL = re.compile(
+    r"^\s*(?!.*\b(?:development|dev ?mode|mission|project)\b)"
+    r"(?:cancel|never ?mind|forget it|don'?t (?:install|remove))\b", re.I)
 _MKT_REMOVE = re.compile(r"\b(?:remove|uninstall|delete)\s+(?:the\s+)?(.+?)\s+(?:agent|module)s?\b", re.I)
 _MKT_INSTALL = re.compile(r"\b(?:install|add|download|set up|get)\s+(?:the\s+|an?\s+)?(.+?)\s+(?:agent|module)s?\b", re.I)
 _MKT_INSTALLED = re.compile(
