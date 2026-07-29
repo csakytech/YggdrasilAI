@@ -174,7 +174,8 @@ class AppsAgent(BaseAgent):
             r = self._launch((params.get("argument") or "").strip())
             return r if isinstance(r, dict) else {"speech": r}
         if verb == "close":
-            return {"speech": self._close((params.get("argument") or "").strip())}
+            r = await self._close((params.get("argument") or "").strip())
+            return r if isinstance(r, dict) else {"speech": r}
         if verb == "browse":
             return {"speech": self._browse((params.get("argument") or "").strip())}
         if verb == "search":
@@ -258,46 +259,113 @@ class AppsAgent(BaseAgent):
 
     # Modifiers stack in any order — "all OPEN windows" (the live miss), "all my apps",
     # "the open programs". The noun list is what keeps "all my documents" out of here.
+    # This is a FAST PATH, not the only path: anything it misses now falls through to
+    # _resolve_windows below, which reasons about the real window list instead of giving up.
     _CLOSE_ALL_RE = re.compile(
         r"^(?:all|everything|"
         r"(?:all\s+|the\s+|my\s+|open\s+|currently\s+)*"
         r"(?:windows?|apps?|applications?|programs?))$", re.I)
 
-    def _close_all(self) -> str:
-        """Close every ordinary window. Uses the same GRACEFUL wmctrl close as _close, so an app
-        with unsaved work still gets to put up its own save prompt — we ask the window to go,
-        we don't kill the process. Skips our own always-on-top HUD, which isn't a window the
-        user thinks of as open, and sticky/desktop windows (the desktop itself, panels)."""
-        closed = 0
+    # Which of the OPEN windows did the user mean? Indices into the list we supply, so the
+    # model picks from reality and cannot invent a window that isn't there.
+    _PICK_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "numbers": {"type": "array", "items": {"type": "integer"}},
+            "all": {"type": "boolean"},
+        },
+        "required": ["numbers"],
+    }
+
+    def _open_windows(self) -> list[dict]:
+        """The live window list from the window manager — id, class, title. Skips sticky/desktop
+        windows (the desktop itself, panels) and our own always-on-top HUD, none of which the
+        user thinks of as "open windows". Queried fresh every time: a cached list would be wrong
+        the moment someone closes something with the mouse."""
+        out: list[dict] = []
         try:
             for line in subprocess.run(["wmctrl", "-lx"], capture_output=True, text=True,
                                        timeout=5).stdout.splitlines():
                 parts = line.split(None, 4)
-                if len(parts) < 3:
+                if len(parts) < 3 or parts[1] == "-1":
                     continue
-                wm_class = parts[2].lower()
-                if parts[1] == "-1":          # sticky/desktop-level: the desktop, panels
+                cls = parts[2]
+                if "hud" in cls.lower():
                     continue
-                if "hud" in wm_class:          # our own status strip
-                    continue
-                subprocess.run(["wmctrl", "-i", "-c", parts[0]], capture_output=True, timeout=5)
-                closed += 1
+                out.append({"id": parts[0], "cls": cls,
+                            "title": parts[4].strip() if len(parts) > 4 else ""})
         except Exception:
-            return "I couldn't reach the window manager to close anything."
-        if not closed:
-            return "There are no windows open."
-        self.last_app = None
-        return f"Closed {closed} window{'s' if closed != 1 else ''}."
+            pass
+        return out
 
-    def _close(self, name: str) -> str:
+    @staticmethod
+    def _friendly(w: dict) -> str:
+        """A window described the way a person would say it: 'Firefox — "GitHub"'."""
+        app = (w["cls"].split(".")[-1] or w["cls"]).replace("-", " ").strip() or "window"
+        title = w.get("title") or ""
+        return f'{app} — "{title}"' if title and title.lower() != app.lower() else app
+
+    async def _resolve_windows(self, request: str, windows: list[dict]) -> list[dict]:
+        """Literal matching failed. Hand the model what is ACTUALLY on screen plus the user's
+        own words, and let it decide which windows they meant.
+
+        This is the difference between an assistant and a command parser. "close all open
+        windows", "get rid of all this stuff", "shut the browser one", "close everything except
+        Firefox" need no pattern each — the model can see the real list. It answers with INDEX
+        NUMBERS which we validate against that list, so a hallucinated window is impossible:
+        the worst case is picking the wrong real one, never acting on an imaginary one."""
+        if not self.llm or not windows:
+            return []
+        listing = "\n".join(f"{i + 1}. {self._friendly(w)}" for i, w in enumerate(windows))
+        try:
+            resp = await self.llm.generate(
+                system=("You decide which of the user's OPEN WINDOWS they are referring to. "
+                        "Reply with the NUMBERS of the matching windows. If they mean all of "
+                        "them, list every number and set all=true. If nothing plausibly "
+                        "matches, return an empty list — do not guess. JSON only."),
+                prompt=f"Open windows:\n{listing}\n\nThe user said: \"{request}\"\n"
+                       "Which windows do they mean?",
+                schema=self._PICK_SCHEMA)
+            picks = (resp.parsed or {}).get("numbers") or []
+        except Exception:
+            return []
+        seen, chosen = set(), []
+        for n in picks:
+            if isinstance(n, int) and 1 <= n <= len(windows) and n not in seen:
+                seen.add(n)
+                chosen.append(windows[n - 1])
+        return chosen
+
+    def _close_windows(self, windows: list[dict]) -> int:
+        """Graceful close, always: we ask each window to go so an app with unsaved work can put
+        up its own save prompt. We never kill the process out from under the user."""
+        n = 0
+        for w in windows:
+            try:
+                subprocess.run(["wmctrl", "-i", "-c", w["id"]], capture_output=True, timeout=5)
+                n += 1
+            except Exception:
+                pass
+        return n
+
+    def _close_all(self) -> str:
+        windows = self._open_windows()
+        if not windows:
+            return "There are no windows open."
+        n = self._close_windows(windows)
+        if not n:
+            return "I couldn't reach the window manager to close anything."
+        self.last_app = None
+        return f"Closed {n} window{'s' if n != 1 else ''}."
+
+    async def _close(self, name: str):
         key = name.lower().strip()
         if key in ("it", "that", "this", "") and self.last_app:
             key = self.last_app
         if not key:
             return "Close what?"
-        # "close all open windows" used to be taken as an app literally named "all", answered
-        # with "all doesn't seem to be running" — which reads as the assistant having no idea
-        # what windows exist.
+        # Fast path for the obvious phrasing. Not the only path — see the semantic fallback at
+        # the bottom, which handles everything this doesn't anticipate.
         if self._CLOSE_ALL_RE.match(key):
             return self._close_all()
         alias = _ALIASES.get(key, key)
@@ -336,7 +404,29 @@ class AppsAgent(BaseAgent):
             if self.last_app == key:
                 self.last_app = None
             return f"Closed {key}."
-        return f"{key} doesn't seem to be running."
+
+        # 3) Literal matching failed — so THINK instead of giving up. We are holding the real
+        #    window list; hand it to the model with the user's own words and let it decide.
+        #    This is what turns "get rid of all this stuff" or "shut the browser one" from a
+        #    dead end into an answer, WITHOUT a pattern per phrasing.
+        windows = self._open_windows()
+        chosen = await self._resolve_windows(name.strip() or key, windows)
+        if chosen:
+            n = self._close_windows(chosen)
+            if n:
+                self.last_app = None
+                if n == 1:
+                    return f"Closed {self._friendly(chosen[0])}."
+                return f"Closed {n} windows."
+
+        # 4) Still nothing. Do NOT dead-end: hand it to the reasoning backbone with an honest
+        #    account of what IS open, so the user gets help rather than a flat contradiction.
+        #    (orchestrator: `assist` means "I ran, but couldn't really help".)
+        if not windows:
+            return {"speech": "There aren't any windows open.", "assist": True}
+        listing = ", ".join(self._friendly(w) for w in windows[:6])
+        return {"speech": f"I couldn't work out which window you meant. Open right now: {listing}.",
+                "assist": True}
 
     @staticmethod
     def _open_in_firefox(url: str) -> None:
