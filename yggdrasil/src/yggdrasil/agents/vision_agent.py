@@ -57,6 +57,10 @@ class VisionAgent(BaseAgent):
         "click": Capability("click", dangerous=False,
                             description="Find an on-screen element by name and click it"),
         "scroll": Capability("scroll", dangerous=False, description="Scroll the screen up or down"),
+        "confirm": Capability("confirm", dangerous=False,
+                              description="Agree to download the vision model"),
+        "cancel": Capability("cancel", dangerous=False,
+                             description="Decline downloading the vision model"),
     }
 
     def __init__(self, bus, perms, vision_llm=None, models=None) -> None:
@@ -67,11 +71,18 @@ class VisionAgent(BaseAgent):
     async def _execute(self, verb: str, params: dict[str, Any]) -> Any:
         arg = (params.get("argument") or "").strip()
         if verb == "look":
-            return {"speech": await self._look(arg)}
+            r = await self._look(arg)
+            return r if isinstance(r, dict) else {"speech": r}
         if verb == "click":
-            return {"speech": await self._click(arg)}
+            r = await self._click(arg)
+            return r if isinstance(r, dict) else {"speech": r}
         if verb == "scroll":
             return {"speech": self._scroll(arg)}
+        if verb == "confirm":
+            return {"speech": self._start_vlm_download()}
+        if verb == "cancel":
+            return {"speech": "Alright — I won't download it. Everything else still works; "
+                              "just ask again if you change your mind."}
         raise ValueError(f"unhandled verb '{verb}'")
 
     def _scroll(self, arg: str) -> str:
@@ -98,7 +109,7 @@ class VisionAgent(BaseAgent):
         if not img:
             return "I couldn't capture the screen just now."
         if await self._need_vlm_download():
-            return self._vlm_downloading_msg()
+            return self._vlm_gate_msg()
         prompt = f"The user wants to click: {description}"
         try:
             resp = await self.vision_llm.describe_image(
@@ -120,8 +131,8 @@ class VisionAgent(BaseAgent):
         return f"Clicked {what}."
 
     async def _need_vlm_download(self) -> bool:
-        """True (and kicks off the pull) if the vision model isn't installed yet — the VLM is a
-        separate download from the text model, so first use fetches it instead of 404ing."""
+        """True if the vision model isn't installed. Deliberately does NOT start the download —
+        see _vlm_gate_msg. The VLM is a separate ~3GB fetch from the text model."""
         model = getattr(self.vision_llm, "model", "")
         if self.models is None or not model:
             return False
@@ -131,14 +142,50 @@ class VisionAgent(BaseAgent):
             return False
         if model in installed or any(n.split(":")[0] == model.split(":")[0] for n in installed):
             return False
-        self.models.start_pull(model)
         self._pulling = model
         return True
 
-    def _vlm_downloading_msg(self) -> str:
-        model = getattr(self, "_pulling", "") or getattr(self.vision_llm, "model", "vision")
-        return (f"I'm downloading my vision model ({model.split(':')[0]}) so I can see the "
-                "screen — this happens once. Ask me again in a few minutes.")
+    def _pull_state(self) -> dict:
+        model = getattr(self, "_pulling", "") or getattr(self.vision_llm, "model", "")
+        try:
+            return (self.models.pull_status() or {}).get(model) or {}
+        except Exception:
+            return {}
+
+    def _vlm_gate_msg(self) -> dict:
+        """The model is missing. ASK before spending 3GB of someone's connection.
+
+        It used to call start_pull() the instant anything needed sight, so a MISROUTE became a
+        multi-gigabyte download: "Preview Ryan" (a voice-picker command) once kicked one off.
+        That is not ours to decide — it may be a metered or slow connection, and the user may
+        simply not want the feature. And on a machine with no internet the old message claimed
+        a download was under way that could never happen, which is the fabrication this project
+        exists to avoid. So: offer, explain what it buys, and wait for a yes."""
+        st = self._pull_state()
+        if st.get("error"):
+            return {"speech": "I tried to download my vision model but couldn't reach the "
+                              "internet. I'll need a connection for that one — everything else "
+                              "still works without it."}
+        if st and not st.get("done"):
+            pct = int(st.get("pct") or 0)
+            return {"speech": f"I'm still downloading my vision model — {pct}% so far. "
+                              "Ask me again once it's finished."}
+        return {"speech": "I can't see the screen yet — that needs my vision model. It's about "
+                          "3 gigabytes, downloaded once, and after that it works offline and "
+                          "lets me describe what's on screen and click things for you. "
+                          "Shall I download it? Say yes or no.",
+                "await_confirm": True, "agent": self.domain}
+
+    def _start_vlm_download(self) -> str:
+        model = getattr(self, "_pulling", "") or getattr(self.vision_llm, "model", "")
+        if not model or self.models is None:
+            return "I don't have a vision model configured to download."
+        try:
+            self.models.start_pull(model)
+        except Exception:
+            return "I couldn't start the download just now."
+        return (f"Downloading my vision model ({model.split(':')[0]}) — about 3 gigabytes. "
+                "I'll be able to see the screen once it's done; ask me again in a few minutes.")
 
     @staticmethod
     def _parse_location(text: str) -> dict | None:
@@ -160,7 +207,7 @@ class VisionAgent(BaseAgent):
         if not img:
             return "I couldn't capture the screen just now."
         if await self._need_vlm_download():
-            return self._vlm_downloading_msg()
+            return self._vlm_gate_msg()
         prompt = question or "Describe what is on the screen right now."
         try:
             resp = await self.vision_llm.describe_image(

@@ -96,7 +96,32 @@ async def test_missing_vlm_offers_download_not_error(monkeypatch):
     ag = _agent(_VLM(), models, monkeypatch)
     out = await ag._execute("look", {"argument": ""})
     assert "download" in out["speech"].lower()
-    assert models.pulled == ["qwen2.5vl:3b"]  # kicked off the pull
+    # ASKS FIRST, and spends nothing until told to. It used to pull on sight, so a misrouted
+    # command ("Preview Ryan", a voice-picker phrase) once kicked off a 3GB download on its own.
+    # Someone's connection may be metered, slow, or absent — that call is the user's.
+    assert out.get("await_confirm")
+    assert models.pulled == []
+
+
+@pytest.mark.asyncio
+async def test_vlm_download_starts_only_after_yes(monkeypatch):
+    models = _Models(["qwen3:14b"])
+    ag = _agent(_VLM(), models, monkeypatch)
+    await ag._execute("look", {"argument": ""})   # offered, nothing downloaded
+    assert models.pulled == []
+    out = await ag._execute("confirm", {})        # the user said yes
+    assert models.pulled == ["qwen2.5vl:3b"]
+    assert "download" in out["speech"].lower()
+
+
+@pytest.mark.asyncio
+async def test_declining_the_vlm_downloads_nothing(monkeypatch):
+    models = _Models(["qwen3:14b"])
+    ag = _agent(_VLM(), models, monkeypatch)
+    await ag._execute("look", {"argument": ""})
+    out = await ag._execute("cancel", {})
+    assert models.pulled == []
+    assert "won't" in out["speech"].lower() or "wont" in out["speech"].lower()
 
 
 @pytest.mark.asyncio
