@@ -93,6 +93,12 @@ _PLANNER_BASE = (
     "the allowed actions, each with an 'argument' (a folder name, or the thing to remember). "
     "If the request is a question, greeting, or small talk — NOT an action — return an empty "
     "steps list. "
+    "NEVER substitute a loosely related action when nothing in the allowed list actually does "
+    "what was asked: an empty steps list is the CORRECT answer, and the assistant will then "
+    "explain or help in conversation. Asking HOW to do something ('how do I change the desktop "
+    "background?', 'could you help me set a different wallpaper?') is a question — answer it, "
+    "do not fire off the nearest-looking action. A wrong action is far worse than no action, "
+    "because the user gets something they did not ask for and no answer to what they did ask. "
     "FINISH THE GOAL, not just the setup: the user states an outcome, you handle the "
     "logistics AND deliver the outcome. If they want to start DOING something (writing, "
     "browsing, editing), the LAST step opens the tool or thing they need — folders alone "
@@ -104,6 +110,12 @@ _PLANNER_NEGATIVE = [
     'what is my name -> {"steps":[]}',
     'how are you -> {"steps":[]}',
     'dance a jig -> {"steps":[]}',
+    # Live miss: this was planned as vision.look — the planner anchored on "image" and described
+    # the screen instead of answering. Nothing in the action list changes a wallpaper, so the
+    # right move is to SAY SO, not to fire the nearest-looking verb.
+    'if I wanted to change the background image, could you help me with that -> {"steps":[]}',
+    'how do I change the desktop background -> {"steps":[]}',
+    'can you help me set a different wallpaper -> {"steps":[]}',
     # "build/make/create me a program/app/tool" routes to Development Mode (dev.enter) —
     # positive examples come from the Dev agent's manifest.
 ]
