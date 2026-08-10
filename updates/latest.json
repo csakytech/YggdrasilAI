@@ -1,12 +1,14 @@
 {
-  "version": "1.5.3",
-  "tag": "v1.5.3",
+  "version": "1.5.4",
+  "tag": "v1.5.4",
   "changelog": [
-    "🎧 Speech recognition now ships inside the ISO — ThorOS has always run the AI on your own machine, but the part that LISTENS used to download itself the first time you spoke. Fresh installs no longer wait for it, and a machine with no internet can finally hear you.",
-    "🔓 Your computer starts ready to listen — hands-free sign-in now applies on the FIRST boot, not the second, so someone who can't use a keyboard is never stuck at a login screen.",
-    "🔐 You choose how you sign in — the welcome screen asks whether to start straight to the desktop or require your password. Hands-free is the default; it's your machine.",
-    "🐛 Fixed: Jarvis could fail to start on a new install and stay silent until launched by hand — he was reaching for the speech model before the network was awake.",
-    "🐛 Fixed: the \"Thinking…\" status strip has been shipping in a state where it could never launch. It works now.",
-    "ℹ️ Known issue: installing with no network cable connected can stall on \"Updating the list of available packages\". Install connected — you can unplug afterwards and the voice keeps working."
+    "💬 A Conversation window — everything you said as it was HEARD, and everything the assistant replied, with scrollback. When an answer looks wrong this tells you instantly whether you were misheard or misunderstood. Off by default; turn it on in ThorAI Settings › Conversation log.",
+    "🏷️ You can see which mode you're in — a badge stays on screen during Development Mode and tells you how to leave. Modes capture what you say, so being in one without knowing is how you end up with baffling answers.",
+    "🖼️ Change your desktop background by voice — \"set my wallpaper to the sunset photo\", or just \"change my background\" and it lists what it can see. It understands \"the sunset one\"; you don't need the filename.",
+    "🚪 Leave a mode however you say it — exit, close, leave, get out of, forget this project. Getting OUT of something should never depend on guessing the one magic phrase. You can also just ask \"what mode are you in?\".",
+    "🪟 \"Close all open windows\" works — and so do phrasings nobody taught it, like \"get rid of all this stuff\". When a request matches nothing it knows, it now looks at what's actually on screen and works out what you meant.",
+    "🤝 It asks before downloading. Screen vision needs a 3GB model; it explains what that buys you and waits for a yes instead of quietly using your connection — and says so honestly if you have no internet.",
+    "🎯 It won't guess. When nothing it can do matches your request, it says so and helps in conversation instead of firing off the nearest-looking action.",
+    "🐛 Renaming actually sticks — the Dashboard, chat, settings, tasks and mission window all use the new name. One of them used to tell you to say \"Jarvis\", which by then no longer woke her."
   ]
 }
