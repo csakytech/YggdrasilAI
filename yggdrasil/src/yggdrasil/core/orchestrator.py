@@ -365,6 +365,23 @@ _QUESTION_OPENER_RE = re.compile(
     re.I,
 )
 
+# "Close X" -> app.close, deterministically. Closing anything used to depend entirely on the
+# planner choosing app.close, and it doesn't reliably: "close all open windows on the screen"
+# and "get rid of all this stuff" were both planned as system.power — the assistant offered to
+# put the machine to SLEEP. (The power confirmation caught it, which is why nothing happened.)
+# This only guarantees the right AGENT is reached; which windows the words mean is still worked
+# out inside app.close against the live window list, so unanticipated phrasings still resolve.
+# Exclusions keep the more specific owners: dev-mode cancels, the mission window, power verbs
+# about the machine itself, and closing a file/document/account.
+_CLOSE_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?(?:can you |could you |please |go ahead and )*"
+    r"(?!.*\b(?:development|dev ?mode|mission|project|computer|machine|system|pc|box|"
+    r"yourself|account|file|document|tab|browser tab)\b)"
+    r"(?:close|quit|exit|dismiss|get rid of|clear away|clean up)\s+"
+    r"(?P<what>.+?)\s*[.?!]*\s*$",
+    re.I,
+)
+
 # "Change my desktop background" -> system.wallpaper. A fast path, added because the planner
 # demonstrably would not choose it: with system.info carrying a dozen examples, "change my
 # desktop background" was planned as system.info and answered "Load is 0.4. Memory 30.3 of 32.8
@@ -1312,6 +1329,12 @@ class Orchestrator:
             if isinstance(result.data, dict) and result.data.get("await_confirm"):
                 self._pending_confirm = result.data.get("agent")
             return self._render(task, result)
+        clo = _CLOSE_RE.match(goal.strip())
+        if clo:  # "close all open windows on the screen" / "get rid of all this stuff"
+            self._publish("")
+            task = Task(action="app.close", agent="app",
+                        params={"argument": clo.group("what").strip()})
+            return self._render(task, await self._dispatch(task))
         wp = _WALLPAPER_RE.match(goal.strip())
         if wp:  # "set my wallpaper to the sunset photo" -> pick from the user's real pictures
             self._publish("Looking through your pictures…")

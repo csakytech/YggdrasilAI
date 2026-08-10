@@ -262,9 +262,13 @@ class AppsAgent(BaseAgent):
     # This is a FAST PATH, not the only path: anything it misses now falls through to
     # _resolve_windows below, which reasons about the real window list instead of giving up.
     _CLOSE_ALL_RE = re.compile(
-        r"^(?:all|everything|"
-        r"(?:all\s+|the\s+|my\s+|open\s+|currently\s+)*"
-        r"(?:windows?|apps?|applications?|programs?))$", re.I)
+        r"^(?:all|everything|all of it|all this|all that|"
+        r"(?:all\s+|the\s+|my\s+|open\s+|currently\s+|this\s+|these\s+)*"
+        r"(?:windows?|apps?|applications?|programs?|stuff))"
+        # Trailing scenery: "…on the screen", "…right now". Without this, "close all open windows
+        # ON THE SCREEN" missed the fast path and needed a model round-trip to say the obvious.
+        r"(?:\s+(?:on|in)\s+(?:the\s+|my\s+)?(?:screen|desktop))?"
+        r"(?:\s+(?:right now|now|please|for me|already))*\s*$", re.I)
 
     # Which of the OPEN windows did the user mean? Indices into the list we supply, so the
     # model picks from reality and cannot invent a window that isn't there.
