@@ -196,3 +196,53 @@ async def test_autonomy_never_toggled_by_sentences():
     assert out.get("assist")  # helped onward, mode untouched, no "back to careful mode" loop
     out = await ag._execute("autonomy", {"argument": "on"})
     assert "autonomous mode on" in out["speech"].lower()
+
+
+# ---- system.info must not answer questions it wasn't asked -------------------------------------
+
+def test_unrecognised_topics_do_not_become_a_status_report():
+    """classify() used to default to "status", so ANY unrecognised phrase routed to system.info
+    came back as "Load is 1.4. Memory 30.3 of 32.8 gigabytes free." Live case: "change my desktop
+    background" (and even the fragment "change my") answered with load and memory. A fluent answer
+    to a question nobody asked is the failure this project exists to avoid."""
+    import yggdrasil.agents.system_agent as sa
+    for phrase in ("change my desktop background",
+                   "change my",
+                   "set my wallpaper to the sunset photo",
+                   "play some music",
+                   "what is the capital of France"):
+        assert sa.SystemAgent.classify(phrase) == "unknown", phrase
+
+
+def test_status_still_works_when_actually_asked():
+    import yggdrasil.agents.system_agent as sa
+    for phrase in ("what is my system status", "system status", "what's the load",
+                   "how is this computer doing"):
+        assert sa.SystemAgent.classify(phrase) == "status", phrase
+
+
+def test_real_topics_are_untouched():
+    import yggdrasil.agents.system_agent as sa
+    cases = {"what is my local ip": "local_ip", "what is my external ip": "external_ip",
+             "how much memory do I have": "memory", "what cpu is this": "cpu",
+             "how much disk space": "disk", "what is my uptime": "uptime"}
+    for phrase, topic in cases.items():
+        assert sa.SystemAgent.classify(phrase) == topic, phrase
+
+
+def test_unknown_escalates_instead_of_answering():
+    """It must hand back to the reasoning backbone, not fill the silence."""
+    import asyncio
+
+    import yggdrasil.agents.system_agent as sa
+    from yggdrasil.core.bus import LocalBus
+    from yggdrasil.core.permissions import AuthChallenge, DefaultPolicy, PermissionManager, UserChannel
+
+    class _Ch(UserChannel):
+        async def present_challenge(self, challenge: AuthChallenge) -> None:  # pragma: no cover
+            pass
+
+    ag = sa.SystemAgent(LocalBus(), PermissionManager(DefaultPolicy(), _Ch()))
+    out = asyncio.run(ag._execute("info", {"argument": "change my desktop background"}))
+    assert out.get("assist") is True
+    assert "Load is" not in out.get("speech", "")

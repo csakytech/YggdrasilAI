@@ -51,7 +51,9 @@ class SystemAgent(BaseAgent):
         "status": Capability("status", dangerous=False, description="CPU load, memory, uptime"),
         "running": Capability("running", dangerous=False, description="Top running programs"),
         "info": Capability("info", dangerous=False,
-                           description="Answer questions about this machine: IPs, memory, CPU, GPU, hostname, OS"),
+                           description="ANSWER READ-ONLY QUESTIONS about this machine: IPs, memory, "
+                                       "CPU, GPU, hostname, OS, uptime, battery, disk. Never changes "
+                                       "any setting — use another action to CHANGE something"),
         "power": Capability("power", dangerous=False,
                             description="Reboot, shut down, or suspend the computer (always confirms first)"),
         "confirm": Capability("confirm", dangerous=False, description="Carry out the staged power action after a spoken yes"),
@@ -79,7 +81,8 @@ class SystemAgent(BaseAgent):
             return {"speech": ("Top programs: " + ", ".join(procs) + ".") if procs
                     else "Nothing notable is running."}
         if verb == "info":
-            return {"speech": await self._info((params.get("argument") or "").strip())}
+            r = await self._info((params.get("argument") or "").strip())
+            return r if isinstance(r, dict) else {"speech": r}
         if verb == "wallpaper":
             r = await self._wallpaper((params.get("argument") or "").strip())
             return r if isinstance(r, dict) else {"speech": r}
@@ -266,10 +269,23 @@ class SystemAgent(BaseAgent):
             return "uptime"
         if re.search(r"\bdisk\b|\bstorage\b|\bspace\b", q):
             return "disk"
-        return "status"
+        # "status" must be ASKED FOR. It used to be the default for anything unrecognised, which
+        # made this a silent catch-all: "change my desktop background" — and even the fragment
+        # "change my" — came back as "Load is 1.4. Memory 30.3 of 32.8 gigabytes free." A
+        # confident answer to a question nobody asked is worse than admitting the miss.
+        if re.search(r"\bstatus\b|\bload\b|how(?:'s| is) (?:the |this |my )?"
+                     r"(?:machine|computer|system|pc)\b", q):
+            return "status"
+        return "unknown"
 
-    async def _info(self, question: str) -> str:
+    async def _info(self, question: str):
         topic = self.classify(question)
+        if topic == "unknown":
+            # Don't invent an answer out of whatever this agent happens to know. Hand it back so
+            # the reasoning backbone can actually help — the planner routes here far too eagerly
+            # ("change my desktop background" landed on system.info), and a wrong-but-fluent
+            # reply is exactly what makes the assistant feel like it isn't listening.
+            return {"speech": "", "assist": True}
         if topic == "external_ip":
             return await self._external_ip()
         return {
