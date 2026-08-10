@@ -1,0 +1,11 @@
+[Unit]
+Description=Yggdrasil baseline recorder (one sample of what's normal on this machine)
+Documentation=file:/opt/yggdrasil/yggdrasil/src/yggdrasil/core/baseline.py
+
+[Service]
+Type=oneshot
+# A USER unit on purpose: it records this user's processes and connections, not the whole
+# machine's, and it needs no privilege to do so. It also no-ops unless the user has switched
+# the baseline on, so enabling the timer is safe regardless.
+ExecStart=/opt/yggdrasil/venv/bin/python -m yggdrasil.core.baseline
+Nice=10

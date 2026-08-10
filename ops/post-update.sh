@@ -122,4 +122,17 @@ if [ -f "$ALG_SRC" ] && [ -f "$ALG_SVC" ]; then
     systemctl enable yggdrasil-autologin.service >/dev/null 2>&1 || true
 fi
 
+# --- v1.5.5: baseline recorder timer (foundation for the security sentinel) --------------------
+# The recorder no-ops unless the user switches it on in Settings, so enabling the timer here is
+# safe either way -- and it MUST be installed early, because a baseline is worthless until it has
+# watched for weeks. User units, not system: it records this user's own processes and
+# connections and needs no privilege.
+BL_SVC=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/etc/systemd/user/yggdrasil-baseline.service
+BL_TMR=/opt/yggdrasil/yggdrasil-iso/config/includes.chroot/etc/systemd/user/yggdrasil-baseline.timer
+if [ -f "$BL_SVC" ] && [ -f "$BL_TMR" ]; then
+    install -m 644 "$BL_SVC" /etc/systemd/user/yggdrasil-baseline.service || true
+    install -m 644 "$BL_TMR" /etc/systemd/user/yggdrasil-baseline.timer || true
+    systemctl --global enable yggdrasil-baseline.timer >/dev/null 2>&1 || true
+fi
+
 exit 0

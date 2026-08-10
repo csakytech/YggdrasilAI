@@ -72,6 +72,22 @@ class SettingsWindow(Gtk.Window):
                       "on this machine only.",
                       self._convlog)
 
+        # --- Baseline recorder (foundation for the security sentinel) ---
+        # Off by default. It records process names, listening ports and where this machine
+        # connects — enough to infer what you run and where you go — so switching it on is the
+        # user's call, and the wording says plainly that it stays on the machine.
+        self._baseline = Gtk.Switch()
+        self._baseline.set_active(config.get_baseline())
+        self._baseline.set_halign(Gtk.Align.START)
+        self._baseline.connect("notify::active",
+                               lambda s, _p: config.set_baseline(s.get_active()))
+        self._add_row("Learn what's normal on this computer",
+                      "Quietly notes which programs run and what this machine connects to, so "
+                      "it can tell you later when something genuinely new appears — like an "
+                      "unknown program opening a network port. It watches for a few weeks "
+                      "before it says anything. Nothing leaves this computer.",
+                      self._baseline)
+
         # --- Web search engine ---
         self._engine = Gtk.ComboBoxText()
         for eid, label in (("duckduckgo", "DuckDuckGo (private, no CAPTCHAs)"),

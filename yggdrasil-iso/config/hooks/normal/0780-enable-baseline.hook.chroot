@@ -1,0 +1,9 @@
+#!/bin/sh
+# Enable the baseline-recorder timer for every user.
+#
+# Safe to enable unconditionally: the recorder no-ops unless the user switches "Learn what's
+# normal on this computer" on in Settings. It has to be in place from day one regardless,
+# because a baseline is worthless until it has watched for weeks — a sentinel that starts
+# learning the day you first want it is a sentinel that cries wolf.
+set -e
+systemctl --global enable yggdrasil-baseline.timer 2>/dev/null || true

@@ -1,0 +1,15 @@
+[Unit]
+Description=Sample what's normal on this machine every few minutes
+
+[Timer]
+# Five minutes is a compromise: often enough to catch something that listens briefly, rare
+# enough to be free. A baseline is built over WEEKS, so resolution matters far less than the
+# habit of watching.
+OnBootSec=5min
+OnUnitActiveSec=5min
+# Don't let every machine sample on the same tick, and survive a laptop being asleep.
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target

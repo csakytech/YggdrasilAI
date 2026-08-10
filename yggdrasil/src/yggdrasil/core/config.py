@@ -121,6 +121,23 @@ def set_conversation_log(on: bool) -> None:
     _save(cfg)
 
 
+def get_baseline() -> bool:
+    """Record what's NORMAL on this machine (listening ports, outbound peers, process names) so
+    the security sentinel can later tell genuinely-new from ordinary. OFF by default: it's enough
+    to infer what you run and where you go, so switching it on is the user's decision. Local
+    only — it never leaves the machine."""
+    env = os.environ.get("YGGDRASIL_BASELINE")
+    if env is not None:
+        return env != "0"
+    return bool(_raw().get("baseline", False))
+
+
+def set_baseline(on: bool) -> None:
+    cfg = _raw()
+    cfg["baseline"] = bool(on)
+    _save(cfg)
+
+
 def get_chat_pref() -> tuple[str, str]:
     """The Chat window's remembered setup: (mode, model). mode is 'assistant' (route through
     the agents — types like the voice loop) or 'chat' (pure conversation with the local model);
