@@ -365,6 +365,23 @@ _QUESTION_OPENER_RE = re.compile(
     re.I,
 )
 
+# "Change my desktop background" -> system.wallpaper. A fast path, added because the planner
+# demonstrably would not choose it: with system.info carrying a dozen examples, "change my
+# desktop background" was planned as system.info and answered "Load is 0.4. Memory 30.3 of 32.8
+# gigabytes free." The phrase is unambiguous, so determinism costs nothing here and the
+# reasoning path underneath still handles everything this doesn't anticipate.
+_WALLPAPER_RE = re.compile(
+    r"^\s*(?:(?:hey\s+)?\w+\s*,\s*)?"
+    r"(?:can you |could you |please |i want to |i'?d like to |go ahead and |help me )*"
+    r"(?:"
+    r"(?:change|set|switch|update|replace|pick|choose)\s+(?:my |the |a )?(?:desktop\s+|screen\s+)?"
+    r"(?:background|wallpaper)(?:\s+(?:image|picture|photo))?"
+    r"(?:\s+(?:to|with|as)\s+(?P<a>.+?))?"
+    r"|use\s+(?P<b>.+?)\s+(?:as|for)\s+(?:my |the )?(?:desktop\s+|screen\s+)?(?:background|wallpaper)"
+    r")\s*[.?!]*\s*$",
+    re.I,
+)
+
 # "Open ThorAI/assistant/voice settings" -> the ThorAI Settings window. Scoped to the
 # assistant's own settings so it never shadows "open settings" (GNOME's system settings).
 _SETTINGS_RE = re.compile(
@@ -1295,6 +1312,12 @@ class Orchestrator:
             if isinstance(result.data, dict) and result.data.get("await_confirm"):
                 self._pending_confirm = result.data.get("agent")
             return self._render(task, result)
+        wp = _WALLPAPER_RE.match(goal.strip())
+        if wp:  # "set my wallpaper to the sunset photo" -> pick from the user's real pictures
+            self._publish("Looking through your pictures…")
+            want = (wp.group("a") or wp.group("b") or "").strip()
+            task = Task(action="system.wallpaper", agent="system", params={"argument": want})
+            return self._render(task, await self._dispatch(task))
         if _SYSINFO_RE.match(goal.strip()):  # "what's my local IP" -> real commands, never the LLM
             self._publish("Checking…")
             task = Task(action="system.info", agent="system", params={"argument": goal})
