@@ -39,6 +39,11 @@ class SystemAgent(BaseAgent):
         'stop asking for confirmation -> {"steps":[{"action":"system.autonomy","argument":"on"}]}',
         'enable autonomous mode -> {"steps":[{"action":"system.autonomy","argument":"on"}]}',
         'be careful again -> {"steps":[{"action":"system.autonomy","argument":"off"}]}',
+        'change the desktop background -> {"steps":[{"action":"system.wallpaper","argument":""}]}',
+        'set my wallpaper to the sunset photo -> {"steps":[{"action":"system.wallpaper","argument":"sunset"}]}',
+        'can you change my background image -> {"steps":[{"action":"system.wallpaper","argument":""}]}',
+        'use that mountain picture as my desktop background -> {"steps":[{"action":"system.wallpaper","argument":"mountain"}]}',
+        'what pictures could I use as a background -> {"steps":[{"action":"system.wallpaper","argument":""}]}',
     ]
     capabilities = {
         "time": Capability("time", dangerous=False, description="Current date and time"),
@@ -52,10 +57,13 @@ class SystemAgent(BaseAgent):
         "confirm": Capability("confirm", dangerous=False, description="Carry out the staged power action after a spoken yes"),
         "cancel": Capability("cancel", dangerous=False, description="Cancel the staged power action"),
         "autonomy": Capability("autonomy", dangerous=False, description="Turn autonomous (no-confirmation) mode on or off"),
+        "wallpaper": Capability("wallpaper", dangerous=False,
+                                description="Change the desktop background to one of your pictures"),
     }
 
-    def __init__(self, bus, perms) -> None:
+    def __init__(self, bus, perms, llm=None) -> None:
         super().__init__(bus, perms)
+        self.llm = llm  # used to pick which picture the user meant, when the name isn't exact
         self._pending_power: str | None = None  # a power action awaiting yes/no
 
     async def _execute(self, verb: str, params: dict[str, Any]) -> Any:
@@ -72,6 +80,9 @@ class SystemAgent(BaseAgent):
                     else "Nothing notable is running."}
         if verb == "info":
             return {"speech": await self._info((params.get("argument") or "").strip())}
+        if verb == "wallpaper":
+            r = await self._wallpaper((params.get("argument") or "").strip())
+            return r if isinstance(r, dict) else {"speech": r}
         if verb == "power":
             return self._stage_power((params.get("argument") or "").strip().lower())
         if verb == "confirm":
@@ -128,6 +139,101 @@ class SystemAgent(BaseAgent):
                 errs.append([repr(e)])
         detail = errs[-1][0][:120] if errs else "unknown error"
         return {"speech": f"I couldn't {kind} the computer — {detail}", "assist": True}
+
+    # ---- desktop background ---------------------------------------------------------------------
+    # Setting the wallpaper by voice matters more here than it would elsewhere: for someone who
+    # can't drive a mouse, "make that photo my background" is otherwise a menu they cannot reach.
+    # ThorOS only ever set a DEFAULT wallpaper via dconf and never gave the assistant a way to
+    # change it, so "could you help me change the background?" had no honest answer.
+    _IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".svg")
+    _PIC_DIRS = ("Pictures", "Downloads", "Desktop", "Documents")
+    _PIC_SCHEMA = {
+        "type": "object",
+        "properties": {"number": {"type": "integer"}},
+        "required": ["number"],
+    }
+
+    def _pictures(self, limit: int = 60) -> list:
+        """Images the user could plausibly want, newest first. Their own folders come before the
+        system wallpapers, because "that photo I just downloaded" is the common case."""
+        from pathlib import Path
+        found, seen = [], set()
+        roots = [Path.home() / d for d in self._PIC_DIRS] + [Path("/usr/share/backgrounds")]
+        for root in roots:
+            try:
+                if not root.is_dir():
+                    continue
+                for p in sorted(root.rglob("*"), key=lambda x: -x.stat().st_mtime):
+                    if len(found) >= limit:
+                        break
+                    if p.is_file() and p.suffix.lower() in self._IMG_EXT and p.name not in seen:
+                        seen.add(p.name)
+                        found.append(p)
+            except (OSError, ValueError):
+                continue
+        return found
+
+    @staticmethod
+    def _set_wallpaper(path) -> bool:
+        """Both light and dark keys — setting only one leaves the other theme on the old image."""
+        uri = f"file://{path}"
+        ok = False
+        for key in ("picture-uri", "picture-uri-dark"):
+            try:
+                r = subprocess.run(["gsettings", "set", "org.gnome.desktop.background", key, uri],
+                                   capture_output=True, timeout=8)
+                ok = ok or r.returncode == 0
+            except Exception:
+                pass
+        return ok
+
+    async def _pick_picture(self, want: str, pics: list):
+        """Exact stem, then substring, then let the model choose from the REAL list by number —
+        the same ground-truth resolution app.close uses, so 'the sunset one' works without a
+        pattern per phrasing, and an out-of-range answer can never become an action."""
+        w = want.lower().strip()
+        for p in pics:
+            if p.stem.lower() == w or p.name.lower() == w:
+                return p
+        subs = [p for p in pics if w in p.stem.lower()]
+        if len(subs) == 1:
+            return subs[0]
+        if not self.llm or not pics:
+            return subs[0] if subs else None
+        listing = "\n".join(f"{i + 1}. {p.name}" for i, p in enumerate(pics[:40]))
+        try:
+            resp = await self.llm.generate(
+                system=("Pick which picture the user means from the numbered list. Reply with its "
+                        "number, or 0 if none of them plausibly match. JSON only."),
+                prompt=f"Pictures:\n{listing}\n\nThe user asked for: \"{want}\"",
+                schema=self._PIC_SCHEMA)
+            n = int((resp.parsed or {}).get("number") or 0)
+        except Exception:
+            return None
+        return pics[n - 1] if 1 <= n <= min(len(pics), 40) else None
+
+    async def _wallpaper(self, want: str):
+        if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+            return "I can only change the background when you're signed in at the desktop."
+        if not shutil.which("gsettings"):
+            return "I can't reach the desktop settings to change the background."
+        pics = self._pictures()
+        if not pics:
+            return {"speech": "I couldn't find any pictures to use. Put an image in your Pictures "
+                              "folder and ask me again.", "assist": True}
+        if not want:
+            names = ", ".join(p.stem for p in pics[:5])
+            return (f"Which picture would you like? I can see {names}. "
+                    "Say, for example, “use the first one” or give me the name.")
+        chosen = await self._pick_picture(want, pics)
+        if not chosen:
+            names = ", ".join(p.stem for p in pics[:6])
+            return {"speech": f"I couldn't find a picture matching “{want}”. I can see: {names}.",
+                    "assist": True}
+        if not self._set_wallpaper(chosen):
+            return {"speech": f"I found {chosen.name} but couldn't apply it as the background.",
+                    "assist": True}
+        return f"Done — your background is now {chosen.stem}."
 
     # ---- the system-info library --------------------------------------------------------------
     @staticmethod

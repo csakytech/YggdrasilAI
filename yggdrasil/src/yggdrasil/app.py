@@ -66,7 +66,7 @@ async def build_orchestrator(channel: UserChannel, auth_resolver: AuthResolver):
     store = MemoryStore()
     registry.register(file_agent)
     registry.register(MemoryAgent(bus, perms, store, models.get("reasoner") if models else None))
-    registry.register(SystemAgent(bus, perms))
+    registry.register(SystemAgent(bus, perms, models.get("reasoner") if models else None))
     registry.register(AppsAgent(bus, perms, models.get("writer") if models else None, sandbox))
     registry.register(SecurityAgent(bus, perms, llm))
     registry.register(CommandAgent(bus, perms))
