@@ -36,10 +36,11 @@ class TasksWindow(Gtk.Window):
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.add(box)
-        head = Gtk.Label()
-        head.set_markup(f"<big><b>What {name} is doing</b></big>")
-        head.set_xalign(0.0)
-        box.pack_start(head, False, False, 0)
+        self._name = name
+        self._head = Gtk.Label()
+        self._head.set_markup(f"<big><b>What {name} is doing</b></big>")
+        self._head.set_xalign(0.0)
+        box.pack_start(self._head, False, False, 0)
 
         self._list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         scroll = Gtk.ScrolledWindow()
@@ -61,6 +62,13 @@ class TasksWindow(Gtk.Window):
         GLib.timeout_add(500, self._refresh)
 
     def _refresh(self) -> bool:
+        # Renaming must show up in an ALREADY OPEN window; caching it at construction left the
+        # old name on screen until you closed and reopened, making the rename look like it
+        # hadn't taken.
+        nm = config.get_name()
+        if nm != self._name:
+            self._name = nm
+            self._head.set_markup(f"<big><b>What {nm} is doing</b></big>")
         now = time.time()
         shown = jobs.recent(now, within=20.0)  # running + just-finished (fade out after 20s)
         ids = {j["id"] for j in shown}
@@ -118,7 +126,9 @@ class TasksWindow(Gtk.Window):
         else:
             r["bar"].set_visible(False)
         elapsed = _elapsed(int((j.get("ended") or now) - j.get("started", now)))
-        who = j.get("agent", "Jarvis")
+        # Fall back to the CONFIGURED name, not a literal "Jarvis" — a job row on a renamed
+        # assistant would otherwise credit the work to someone who no longer exists.
+        who = j.get("agent") or config.get_name()
         detail = j.get("detail", "")
         tail = {"done": "finished", "error": f"failed — {detail}"}.get(state, detail or "working…")
         r["sub"].set_markup(f"<span foreground='#888'>{who} · {elapsed} · "

@@ -43,7 +43,7 @@ class SettingsWindow(Gtk.Window):
         self._verbosity.connect("changed",
                                 lambda c: config.set_verbosity(c.get_active_id() or "full"))
         self._add_row("Spoken confirmations",
-                      "What Jarvis says when he DOES something you asked. Questions, answers, "
+                      f"What {name} says when DOING something you asked. Questions, answers, "
                       "and problems are always spoken in full.",
                       self._verbosity)
 
@@ -53,8 +53,8 @@ class SettingsWindow(Gtk.Window):
         self._duplex.set_halign(Gtk.Align.START)
         self._duplex.connect("notify::active", lambda s, _p: config.set_duplex(s.get_active()))
         self._add_row("Interrupt me while I'm talking",
-                      "Let Jarvis keep listening while he speaks, so you can talk over him. "
-                      "Takes effect the next time the assistant starts.",
+                      f"Let {name} keep listening while speaking, so you can talk over the "
+                      "assistant. Takes effect the next time it starts.",
                       self._duplex)
 
         # --- Conversation log ---
@@ -67,7 +67,7 @@ class SettingsWindow(Gtk.Window):
         self._convlog.connect("notify::active",
                               lambda s, _p: config.set_conversation_log(s.get_active()))
         self._add_row("Conversation log",
-                      "Keep the last few things you said and what Jarvis replied, so you can "
+                      f"Keep the last few things you said and what {name} replied, so you can "
                       "check what he actually heard. Open it from the Conversation app. Stored "
                       "on this machine only.",
                       self._convlog)

@@ -14,7 +14,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
-from ..core import mission  # noqa: E402
+from ..core import config, mission  # noqa: E402
 
 CSS = """
 .ygg-title { font-size: 20px; font-weight: 800; }
@@ -65,7 +65,10 @@ class MissionWindow(Gtk.ApplicationWindow):
         m = mission.load()
         self._clear()
         if not m:
-            self._label("No mission yet. Say: “Jarvis, I want to build …” to start one.", "ygg-sub")
+            # Read the name at RENDER time, not import time: telling a user who renamed the
+            # assistant to say "Jarvis" hands them the one word that no longer wakes her.
+            self._label(f"No mission yet. Say: “{config.get_name()}, I want to build …” "
+                        "to start one.", "ygg-sub")
             return True
         title = m.get("name") or m.get("summary") or "Development Mission"
         self._label(f"🚀  {title}", "ygg-title")

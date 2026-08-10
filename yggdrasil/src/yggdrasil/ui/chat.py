@@ -47,7 +47,8 @@ class _ChatChannel(UserChannel):
         self._show = show
 
     async def present_challenge(self, challenge: AuthChallenge) -> None:
-        self._show("Jarvis", f"🔒 {challenge.summary}\nTo approve, type:  Authorize {challenge.code}", "dim")
+        self._show(config.get_name(),
+                   f"🔒 {challenge.summary}\nTo approve, type:  Authorize {challenge.code}", "dim")
 
 
 class ChatWindow(Gtk.Window):
@@ -58,7 +59,10 @@ class ChatWindow(Gtk.Window):
 
         self._loop = asyncio.new_event_loop()
         self._orch = None
-        self._name = "Jarvis"
+        # Seed from CONFIG, not a literal: the orchestrator overwrites this once it loads, but
+        # until then (and on the error path below) a renamed assistant was introducing herself
+        # under the old name.
+        self._name = config.get_name()
         self._auth_future: asyncio.Future | None = None
         self._mode, self._chat_model = config.get_chat_pref()
         self._messages: list[dict] = []  # "just chat" rolling history (no system msg; added per call)
@@ -131,7 +135,7 @@ class ChatWindow(Gtk.Window):
             GLib.idle_add(self._on_ready)
             self._loop.run_forever()
         except Exception as e:  # noqa: BLE001
-            GLib.idle_add(self._post_inline, "Jarvis", f"(couldn't start: {e!r})", "dim")
+            GLib.idle_add(self._post_inline, self._name, f"(couldn't start: {e!r})", "dim")
 
     def _load_models(self) -> None:
         """Populate the model dropdown from the LOCAL Ollama daemon (local-only by design)."""

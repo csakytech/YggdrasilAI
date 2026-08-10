@@ -13,7 +13,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
-from ..core import updater  # noqa: E402
+from ..core import config, updater  # noqa: E402
 
 CSS = """
 .ygg-title { font-size: 22px; font-weight: 800; }
@@ -99,7 +99,7 @@ class UpdateWindow(Gtk.ApplicationWindow):
     def _done(self, ok: bool, msg: str) -> bool:
         if ok:
             self.status.set_text(f"✅  Updated to {self.rel.get('version','?')}. "
-                                 "Jarvis is restarting — you can close this.")
+                                 f"{config.get_name()} is restarting — you can close this.")
             self.later_btn.set_label("Close")
             self.later_btn.set_sensitive(True)
         else:
