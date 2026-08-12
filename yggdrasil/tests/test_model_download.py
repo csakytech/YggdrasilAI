@@ -13,6 +13,27 @@ import asyncio
 import pytest
 
 from yggdrasil.agents.model_agent import ModelAgent
+from yggdrasil.core.orchestrator import _model_route
+
+
+# --- routing: "download X" must reach the model agent, not the shell ------------------------
+
+def test_a_full_hf_path_routes_to_the_model_agent_not_a_shell_command():
+    # It used to fall through to the planner -> command.run -> an authorization challenge.
+    verb, prms = _model_route("download hf.co/RavichandranJ/Dolphin3-Cyber-8B-GGUF:Q4_K_M")
+    assert verb == "pull"
+    assert prms["argument"] == "hf.co/RavichandranJ/Dolphin3-Cyber-8B-GGUF:Q4_K_M"
+
+
+def test_a_bare_tag_routes_to_pull():
+    assert _model_route("download qwen2.5-coder:7b") == ("pull", {"argument": "qwen2.5-coder:7b"})
+
+
+def test_full_path_wins_over_an_adjective_in_the_same_sentence():
+    verb, prms = _model_route(
+        "download the dolphin model from hf.co/RavichandranJ/Dolphin3-Cyber-8B-GGUF:Q4_K_M")
+    assert verb == "pull"
+    assert prms["argument"].startswith("hf.co/RavichandranJ/")
 
 
 # --- _as_tag: what Ollama is actually told to pull -------------------------------------------

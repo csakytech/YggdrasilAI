@@ -509,6 +509,15 @@ _MDL_STATUS = re.compile(
 _MDL_BIND = re.compile(
     r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?(?:use|switch to|set)\s+"
     r"(?:the\s+)?(.+?)\s+(?:model\s+)?(?:as|for)\s+(?:the\s+)?(" + _MDL_ROLE_WORDS + r")\b", re.I)
+# An explicit HuggingFace path or a bare Ollama tag after a download verb IS the pull target,
+# whether or not the word "model" is present. Without these, "download hf.co/Owner/Repo:Q4" and
+# even "download qwen2.5-coder:7b" matched no model pattern and fell through to the planner, which
+# routed the URL-ish string to command.run — a shell command that then demanded authorization.
+# Checked BEFORE the wordy patterns so a full path wins over an adjective ("the dolphin model").
+_MDL_PULL_PATH = re.compile(
+    r"\b(?:download|pull|fetch|get)\b.*?((?:hf\.co|huggingface\.co)/\S+)", re.I)
+_MDL_PULL_TAG = re.compile(
+    r"\b(?:download|pull|fetch|get)\s+(?:the\s+|a\s+)?([a-z0-9][a-z0-9._\-]*:[a-z0-9._\-]+)\b", re.I)
 _MDL_PULL_A = re.compile(r"\b(?:download|pull|fetch|get)\s+(?:the\s+|a\s+)?(.+?)\s+(?:model|llm)\b", re.I)
 _MDL_PULL_B = re.compile(r"\b(?:download|pull|fetch|get)\s+the\s+(?:model|llm)\s+(.+?)\s*$", re.I)
 _MDL_RESET = re.compile(r"\b(?:reset|go back to the default|back to default)\b.{0,26}\b(?:model|llm)\b"
@@ -815,6 +824,12 @@ def _model_route(goal: str):
         # only claim the phrase when the target actually sounds like a model
         if re.search(r"\bmodel|llm\b", g, re.I) or _MDL_MODELISH.search(target):
             return ("bind", {"argument": target, "role": role})
+    m = _MDL_PULL_PATH.search(g)
+    if m:
+        return ("pull", {"argument": m.group(1).strip(" .?")})
+    m = _MDL_PULL_TAG.search(g)
+    if m:
+        return ("pull", {"argument": m.group(1)})
     m = _MDL_PULL_A.search(g) or _MDL_PULL_B.search(g)
     if m:
         return ("pull", {"argument": m.group(1).strip(" .?")})
