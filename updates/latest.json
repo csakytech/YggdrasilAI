@@ -1,14 +1,13 @@
 {
-  "version": "1.5.4",
-  "tag": "v1.5.4",
+  "version": "1.5.5",
+  "tag": "v1.5.5",
   "changelog": [
-    "💬 A Conversation window — everything you said as it was HEARD, and everything the assistant replied, with scrollback. When an answer looks wrong this tells you instantly whether you were misheard or misunderstood. Off by default; turn it on in ThorAI Settings › Conversation log.",
-    "🏷️ You can see which mode you're in — a badge stays on screen during Development Mode and tells you how to leave. Modes capture what you say, so being in one without knowing is how you end up with baffling answers.",
-    "🖼️ Change your desktop background by voice — \"set my wallpaper to the sunset photo\", or just \"change my background\" and it lists what it can see. It understands \"the sunset one\"; you don't need the filename.",
-    "🚪 Leave a mode however you say it — exit, close, leave, get out of, forget this project. Getting OUT of something should never depend on guessing the one magic phrase. You can also just ask \"what mode are you in?\".",
-    "🪟 \"Close all open windows\" works — and so do phrasings nobody taught it, like \"get rid of all this stuff\". When a request matches nothing it knows, it now looks at what's actually on screen and works out what you meant.",
-    "🤝 It asks before downloading. Screen vision needs a 3GB model; it explains what that buys you and waits for a yes instead of quietly using your connection — and says so honestly if you have no internet.",
-    "🎯 It won't guess. When nothing it can do matches your request, it says so and helps in conversation instead of firing off the nearest-looking action.",
-    "🐛 Renaming actually sticks — the Dashboard, chat, settings, tasks and mission window all use the new name. One of them used to tell you to say \"Jarvis\", which by then no longer woke her."
+    "🧠 A Models screen — ThorAI Settings › Choose models… — pick which model does each job: routing, reasoning, coding, writing, seeing. Any model you've installed can fill any role, and it takes effect on your next request.",
+    "⬇️ Install a model by voice from HuggingFace — say \"download the Dolphin Cyber model from HuggingFace\" and ThorOS finds the real model, picks a version, and offers to download it. No typing long addresses.",
+    "🛡️ It can learn what's normal (optional, off by default) — quietly notes which programs run and what your machine connects to, so it can one day flag something genuinely new like an unknown program opening a port. Watches for weeks first; nothing leaves your machine.",
+    "🗣️ It answers instead of gesturing — \"which models do I have?\" now names them out loud, same for voices and role assignments.",
+    "✅ Downloads are honest — a model download shows up when you ask \"how's it going\", and it says out loud when it's done or if it failed, instead of silence.",
+    "🎯 It won't invent an answer — an unrecognised question no longer comes back as a random report on your memory and load; it says it isn't sure and helps instead.",
+    "ℹ️ After updating, log out and back in to finish loading the new version."
   ]
 }
