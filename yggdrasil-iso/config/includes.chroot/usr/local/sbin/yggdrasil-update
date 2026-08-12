@@ -17,3 +17,7 @@ git reset --hard "$TARGET" >/dev/null 2>&1 || { echo "could not switch to $TARGE
 # silently skipped EVERY release migration until v1.2-rc (found via the dev-build QA transcript).
 [ -f "$APP/ops/post-update.sh" ] && bash "$APP/ops/post-update.sh" >/dev/null 2>&1 || true
 echo "updated to $(git describe --tags --always 2>/dev/null || git rev-parse --short HEAD)"
+# The running assistant keeps the OLD code in memory until its process restarts. The voice
+# "update yourself" path restarts Jarvis for you; this bare helper (used over SSH / by devs)
+# does not — so say so, or the next voice test silently runs pre-update code.
+echo "NOTE: log out and back in (or reboot) to load the new version into the running assistant."

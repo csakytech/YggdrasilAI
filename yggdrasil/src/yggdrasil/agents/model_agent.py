@@ -50,6 +50,7 @@ class ModelAgent(BaseAgent):
         "status": Capability("status", False, "Which model handles which job, and download progress"),
         "bind": Capability("bind", False, "Choose which model handles a job (coding, writing, …)"),
         "pull": Capability("pull", False, "Download a language model from the Ollama library"),
+        "find": Capability("find", False, "Search HuggingFace for a model by name and offer to download it"),
         "reset": Capability("reset", False, "Point a job back at the default model"),
         "confirm": Capability("confirm", False, "Confirm the staged model download"),
         "cancel": Capability("cancel", False, "Cancel the staged model download"),
@@ -65,6 +66,8 @@ class ModelAgent(BaseAgent):
             return {"speech": "Model management needs the language-model system, which isn't running."}
         arg = (params.get("argument") or "").strip()
         role = (params.get("role") or "").strip().lower()
+        if verb == "find":
+            return await self._find(arg)
         if verb == "list":
             return await self._list()
         if verb == "status":
@@ -161,6 +164,34 @@ class ModelAgent(BaseAgent):
         self._staged = {"model": target, "role": None}
         return {"speech": f"That's a multi-gigabyte download of {target}. Go ahead? Say yes or no.",
                 "await_confirm": True, "agent": self.domain}
+
+    async def _find(self, spoken: str):
+        """Resolve a spoken model NAME to a real HuggingFace repo and offer to download it — the
+        piece that turns "download the dolphin cyber model" from "open a web page / describe it"
+        into an actual install, without the user typing hf.co/Owner/Repo:Quant by hand."""
+        if not spoken:
+            return {"speech": "Which model should I look for?"}
+        import asyncio
+
+        from ..core.models import search_hf_gguf
+        try:
+            results = await asyncio.to_thread(search_hf_gguf, spoken)
+        except Exception:
+            results = []
+        if not results:
+            return {"speech": f"I couldn't find a downloadable version of “{spoken}” on "
+                              "HuggingFace. It may not have a GGUF build, or the name might be "
+                              "slightly different — try the exact model name."}
+        top = results[0]
+        tag = f"hf.co/{top['repo']}:{top['best']}"
+        if await self._match(tag):
+            return {"speech": f"You already have {top['repo']} installed."}
+        self._staged = {"model": tag, "role": None}
+        extra = (f" I found {len(results)} matches; this is the closest." if len(results) > 1 else "")
+        return {"speech": f"I found {top['repo']} on HuggingFace.{extra} Shall I download its "
+                          f"{top['best']} version? It's a multi-gigabyte download — say yes or no.",
+                "await_confirm": True, "agent": self.domain,
+                "list": [f"{r['repo']}  ({', '.join(r['quants'][:4])})" for r in results]}
 
     def _confirm(self):
         if not self._staged:

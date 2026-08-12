@@ -36,6 +36,41 @@ def test_full_path_wins_over_an_adjective_in_the_same_sentence():
     assert prms["argument"].startswith("hf.co/RavichandranJ/")
 
 
+# --- find-by-name on HuggingFace: name -> search, path -> pull -------------------------------
+
+@pytest.mark.parametrize("phrase,name", [
+    ("download Dolphin3 Cyber 8B LLM from HuggingFace.co", "Dolphin3 Cyber 8B"),
+    ("find the dolphin cyber model on huggingface", "dolphin cyber"),
+    ("search huggingface for dolphin3 cyber", "dolphin3 cyber"),
+])
+def test_a_name_plus_huggingface_routes_to_find_not_pull_or_browser(phrase, name):
+    assert _model_route(phrase) == ("find", {"argument": name})
+
+
+def test_an_explicit_path_still_pulls_not_finds():
+    # A full path shouldn't be sent to search — it's already resolved.
+    verb, _ = _model_route("download hf.co/Owner/Repo-GGUF:Q4_K_M from huggingface")
+    assert verb == "pull"
+
+
+# --- the search helper resolves a name to a repo + quant ------------------------------------
+
+def test_search_hf_gguf_never_raises_offline(monkeypatch):
+    from yggdrasil.core import models
+    # Force the network call to fail -> [] not an exception.
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("no net")))
+    assert models.search_hf_gguf("anything") == []
+
+
+def test_pick_quant_prefers_q4_k_m():
+    from yggdrasil.core.models import _pick_quant
+    assert _pick_quant(["Q2_K", "Q4_K_M", "Q8_0"]) == "Q4_K_M"
+    assert _pick_quant(["Q6_K"]) == "Q6_K"          # take what's there if the preferred isn't
+    assert _pick_quant([]) is None
+
+
 # --- _as_tag: what Ollama is actually told to pull -------------------------------------------
 
 def test_full_hf_path_is_preserved_verbatim():

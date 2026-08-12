@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -123,6 +124,62 @@ def apply_choice(manager: "ModelManager", role: str, value: str) -> None:
         manager.unbind(role)
     else:
         manager.bind(role, value)
+
+
+# Quant preference for an automatic pick: Q4_K_M is the standard quality/size sweet spot, then
+# nearby 4-bit and 5-bit variants. A user who wants something else can say the quant by name.
+_QUANT_PREFERENCE = ["Q4_K_M", "Q4_K_S", "Q5_K_M", "Q4_0", "Q5_K_S", "Q6_K", "Q3_K_M", "Q8_0"]
+_QUANT_RE = re.compile(r"(IQ\d[A-Z0-9_]*|Q\d[A-Z0-9_]*|F16|F32|BF16)", re.I)
+
+
+def _pick_quant(quants: list[str]) -> str | None:
+    """The quant to pull by default from those a repo offers."""
+    up = {q.upper(): q for q in quants}
+    for pref in _QUANT_PREFERENCE:
+        if pref in up:
+            return up[pref]
+    return quants[0] if quants else None
+
+
+def search_hf_gguf(query: str, limit: int = 5) -> list[dict]:
+    """Find GGUF models on HuggingFace matching a spoken name, so "download the dolphin cyber
+    model" can resolve to the exact hf.co/Owner/Repo:Quant that Ollama pulls — instead of making
+    the user type the full path. Returns [{repo, quants, best}] best-match first. urllib, short
+    timeout, never raises: no internet or an API change yields [] and the caller says so."""
+    import json as _json
+    import urllib.parse
+    import urllib.request
+
+    def _get(url: str):
+        with urllib.request.urlopen(url, timeout=12) as r:
+            return _json.loads(r.read().decode("utf-8"))
+
+    try:
+        q = urllib.parse.quote(query.strip())
+        hits = _get(f"https://huggingface.co/api/models?search={q}&filter=gguf&limit={limit}")
+    except Exception:
+        return []
+    out = []
+    for h in hits[:limit]:
+        repo = h.get("id") or ""
+        if not repo:
+            continue
+        try:
+            info = _get(f"https://huggingface.co/api/models/{urllib.parse.quote(repo)}")
+        except Exception:
+            continue
+        quants, seen = [], set()
+        for s in info.get("siblings", []):
+            fn = s.get("rfilename", "")
+            if not fn.lower().endswith(".gguf"):
+                continue
+            m = _QUANT_RE.search(fn)
+            if m and m.group(0).upper() not in seen:
+                seen.add(m.group(0).upper())
+                quants.append(m.group(0))
+        if quants:
+            out.append({"repo": repo, "quants": quants, "best": _pick_quant(quants)})
+    return out
 
 
 def list_installed_sync(host: str = "http://127.0.0.1:11434") -> list[dict]:

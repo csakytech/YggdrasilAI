@@ -509,6 +509,19 @@ _MDL_STATUS = re.compile(
 _MDL_BIND = re.compile(
     r"^\s*(?:hey\s+\w+[,\s]+)?(?:can you |could you |please )?(?:use|switch to|set)\s+"
     r"(?:the\s+)?(.+?)\s+(?:model\s+)?(?:as|for)\s+(?:the\s+)?(" + _MDL_ROLE_WORDS + r")\b", re.I)
+# Find-by-NAME on HuggingFace: "download the dolphin cyber model from huggingface", "find X on
+# hugging face", "search huggingface for X". The name can't become a pull tag directly (many
+# repos, case-sensitive owners), so this routes to model.find, which SEARCHES HuggingFace and
+# offers the resolved hf.co/Owner/Repo:Quant. Without it, these fell to the browser (opened the
+# web page) or the reasoner (described the model) — never a download. A FULL hf.co path is left
+# to the pull patterns below; this deliberately fires only when NO explicit path is present.
+_MDL_FIND = re.compile(
+    r"(?:^|\b)(?:download|find|search(?:\s+for)?|look\s+for|locate|get)\s+"
+    r"(?:me\s+|the\s+|a\s+|for\s+)*(?P<name>.+?)\s*"
+    r"(?:\s+(?:model|llm))?\s+(?:on|from|in|at)\s+(?:hugging\s*face|hf\.co)\b"
+    r"|search\s+(?:hugging\s*face|hf\.co)\s+for\s+(?P<name2>.+?)\s*$",
+    re.I)
+
 # An explicit HuggingFace path or a bare Ollama tag after a download verb IS the pull target,
 # whether or not the word "model" is present. Without these, "download hf.co/Owner/Repo:Q4" and
 # even "download qwen2.5-coder:7b" matched no model pattern and fell through to the planner, which
@@ -824,12 +837,19 @@ def _model_route(goal: str):
         # only claim the phrase when the target actually sounds like a model
         if re.search(r"\bmodel|llm\b", g, re.I) or _MDL_MODELISH.search(target):
             return ("bind", {"argument": target, "role": role})
+    # A full hf.co path -> pull it directly. Only search-by-name when NO explicit path was given.
     m = _MDL_PULL_PATH.search(g)
     if m:
         return ("pull", {"argument": m.group(1).strip(" .?")})
     m = _MDL_PULL_TAG.search(g)
     if m:
         return ("pull", {"argument": m.group(1)})
+    fm = _MDL_FIND.search(g)
+    if fm:
+        name = (fm.group("name") or fm.group("name2") or "").strip(" .?")
+        name = re.sub(r"^(?:it|that|this|one)$", "", name, flags=re.I).strip()
+        if name and not re.fullmatch(r"(?:it|that|this|the model|a model|one)", name, re.I):
+            return ("find", {"argument": name})
     m = _MDL_PULL_A.search(g) or _MDL_PULL_B.search(g)
     if m:
         return ("pull", {"argument": m.group(1).strip(" .?")})
