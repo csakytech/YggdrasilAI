@@ -271,9 +271,34 @@ class ModelManager:
             self._pulls[model] = {"pct": 0.0, "done": False, "error": None}
 
         def worker() -> None:
+            import time as _t
+
             import httpx
 
+            # Register the download as a first-class background JOB, so "how's it going / what are
+            # you working on" (which reads core/jobs) sees it, the Tasks window shows it, and the
+            # voice announcer speaks its completion or failure. Model pulls used to track progress
+            # in _pulls ONLY — a separate store the jobs query never saw — so a download in flight
+            # answered "nothing running in the background", flatly contradicting the "downloading
+            # now" the user had just been told. Lazy import to avoid any load-time cycle; never let
+            # a jobs hiccup break the actual download.
+            jid = f"pull-{model}"
+            try:
+                from . import jobs
+                jobs.start(jid, "model", f"Downloading {model}", _t.time(),
+                           done_message=f"{model} has finished downloading.")
+            except Exception:
+                jobs = None
+
+            def _job(**kw):
+                if jobs:
+                    try:
+                        jobs.update(jid, _t.time(), **kw)
+                    except Exception:
+                        pass
+
             error = None
+            last_pct = -5.0
             try:
                 with httpx.Client(timeout=None) as client:
                     with client.stream("POST", f"{self.host}/api/pull",
@@ -291,8 +316,12 @@ class ModelManager:
                                 break
                             total, done = st.get("total"), st.get("completed")
                             if total:
+                                pct = 100.0 * (done or 0) / total
                                 with self._lock:
-                                    self._pulls[model]["pct"] = 100.0 * (done or 0) / total
+                                    self._pulls[model]["pct"] = pct
+                                if pct - last_pct >= 2.0:   # throttle: don't rewrite the file every frame
+                                    last_pct = pct
+                                    _job(progress=pct)
             except Exception as e:  # noqa: BLE001
                 error = str(e)
             with self._lock:
@@ -300,6 +329,11 @@ class ModelManager:
                 self._pulls[model]["error"] = error
                 if not error:
                     self._pulls[model]["pct"] = 100.0
+            if jobs:
+                try:
+                    jobs.finish(jid, _t.time(), ok=not error, detail=error or "")
+                except Exception:
+                    pass
             if on_done:
                 try:
                     on_done(model, error)

@@ -143,7 +143,19 @@ class ModelAgent(BaseAgent):
     async def _pull(self, spoken: str):
         if not spoken:
             return {"speech": "Which model should I download?"}
+        # A HuggingFace model can't be guessed from a name — many repos share similar names, and
+        # the owner is case-sensitive. If they mention HuggingFace without a full path, ASK for it
+        # rather than fabricating a bare tag that 404s (which is exactly what "downloaded nothing
+        # and didn't tell me why" was). A pasted/typed full path is honoured by _as_tag above.
+        if re.search(r"hugging\s*face|hf\.co", spoken, re.I) and \
+                not re.search(r"(?:hf\.co|huggingface\.co)/\S+", spoken, re.I):
+            return {"speech": "For a Hugging Face model I need its full address — something like "
+                              "hf.co/owner/model-name. Say or type that and I'll download it. "
+                              "(In a terminal it's: ollama pull hf.co/owner/model.)"}
         target = self._as_tag(spoken)
+        if not target:
+            return {"speech": f"I couldn't work out a model name from “{spoken}”. Give me the exact "
+                              "tag, like qwen2.5-coder:7b, or a full hf.co/owner/model address."}
         if await self._match(spoken):
             return {"speech": f"{spoken} looks like it's already installed."}
         self._staged = {"model": target, "role": None}
@@ -220,9 +232,15 @@ class ModelAgent(BaseAgent):
 
     @staticmethod
     def _as_tag(spoken: str) -> str | None:
-        """A literal Ollama tag if the user spoke one ('qwen2.5-coder:7b'), else a guess
-        from known spoken names, else None."""
-        s = spoken.strip().lower().replace(" ", "")
+        """The Ollama pull target if the user gave one, else a guess from known spoken names, else
+        None. A full HuggingFace path is preserved VERBATIM — repo owners are case-sensitive and
+        contain slashes, so it must not be lowercased or space-stripped like a bare tag. (The old
+        code did both, so even a correctly typed hf.co/Owner/Repo path was mangled to nothing.)"""
+        raw = spoken.strip()
+        m = re.search(r"(?:hf\.co|huggingface\.co)/\S+", raw, re.I)
+        if m:
+            return re.sub(r"(?i)^huggingface\.co/", "hf.co/", m.group(0))
+        s = raw.lower().replace(" ", "")
         if re.fullmatch(r"[a-z0-9._\-]+(:[a-z0-9._\-]+)?", s) and any(c.isdigit() or c in ":.-" for c in s):
             return s
         known = {
@@ -230,4 +248,4 @@ class ModelAgent(BaseAgent):
             "deepseekcoder": "deepseek-coder-v2:16b", "codellama": "codellama:7b",
             "llama": "llama3.2:3b", "mistral": "mistral:7b", "gemma": "gemma3:4b",
         }
-        return known.get(s) or known.get(spoken.strip().lower())
+        return known.get(s) or known.get(raw.lower())
