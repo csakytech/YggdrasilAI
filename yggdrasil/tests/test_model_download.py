@@ -36,6 +36,15 @@ def test_hf_path_is_extracted_from_a_sentence():
 def test_ordinary_ollama_tags_still_work():
     assert ModelAgent._as_tag("qwen2.5-coder:7b") == "qwen2.5-coder:7b"
     assert ModelAgent._as_tag("qwen coder") == "qwen2.5-coder:7b"
+    assert ModelAgent._as_tag("llama3.2") == "llama3.2"      # space-free literal is fine
+
+
+def test_a_spaced_description_is_not_mashed_into_a_fake_tag():
+    # The live bug: "Dolphin3 Cyber 8B" -> "dolphin3cyber8b" -> 404. A spoken description that
+    # isn't a known name and isn't an hf.co path can't become a tag — return None so the caller
+    # asks for the exact name instead of promising a doomed download.
+    assert ModelAgent._as_tag("Dolphin3 Cyber 8B") is None
+    assert ModelAgent._as_tag("Dolphin3 Cyber 8B LLM") is None
 
 
 # --- _pull: the HuggingFace-without-a-path guard ---------------------------------------------

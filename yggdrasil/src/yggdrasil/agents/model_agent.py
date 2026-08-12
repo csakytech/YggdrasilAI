@@ -240,12 +240,19 @@ class ModelAgent(BaseAgent):
         m = re.search(r"(?:hf\.co|huggingface\.co)/\S+", raw, re.I)
         if m:
             return re.sub(r"(?i)^huggingface\.co/", "hf.co/", m.group(0))
-        s = raw.lower().replace(" ", "")
-        if re.fullmatch(r"[a-z0-9._\-]+(:[a-z0-9._\-]+)?", s) and any(c.isdigit() or c in ":.-" for c in s):
-            return s
+        low = raw.lower()
         known = {
             "qwencoder": "qwen2.5-coder:7b", "qwen coder": "qwen2.5-coder:7b",
             "deepseekcoder": "deepseek-coder-v2:16b", "codellama": "codellama:7b",
             "llama": "llama3.2:3b", "mistral": "mistral:7b", "gemma": "gemma3:4b",
         }
-        return known.get(s) or known.get(raw.lower())
+        if low in known or low.replace(" ", "") in known:
+            return known.get(low) or known[low.replace(" ", "")]
+        # A real Ollama tag has NO spaces (qwen2.5-coder:7b). Mashing the spaces out of a spoken
+        # DESCRIPTION ("Dolphin3 Cyber 8B") fabricates a tag that 404s silently — the exact bug
+        # here. So only accept a space-free, tag-shaped literal; a spaced phrase we don't know
+        # resolves to None, and the caller asks for the exact tag or an hf.co path.
+        if " " not in low and re.fullmatch(r"[a-z0-9._\-]+(:[a-z0-9._\-]+)?", low) \
+                and any(c.isdigit() or c in ":.-" for c in low):
+            return low
+        return None
