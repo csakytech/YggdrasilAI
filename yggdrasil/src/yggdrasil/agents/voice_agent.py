@@ -106,7 +106,11 @@ class VoiceAgent(BaseAgent):
                               "I'll show you what's available to download."}
         cur = voices.active_id()
         lines = [voices.label(v) + (" — current" if v == cur else "") for v in have]
-        return {"speech": f"I have {len(have)} voice{'s' if len(have) != 1 else ''} installed.",
+        # Name them aloud: "I have 3 voices" with the names only in the list card is a non-answer
+        # by voice, the only channel a voice user has.
+        spoken = ", ".join(voices.label(v) + (" (current)" if v == cur else "") for v in have)
+        n = len(have)
+        return {"speech": f"I have {n} voice{'s' if n != 1 else ''} installed: {spoken}.",
                 "list": lines}
 
     def _status(self):

@@ -93,8 +93,12 @@ class ModelAgent(BaseAgent):
         in_use = {self.models.resolved(r) for r in ROLES}
         lines = [f"{m['name']} ({m['size_gb']} gigabytes)" + (" — in use" if m["name"] in in_use else "")
                  for m in models]
-        return {"speech": f"You have {len(models)} language "
-                          f"model{'s' if len(models) != 1 else ''} installed.",
+        # NAME them in the spoken reply too. The names used to live only in the "list" card, which
+        # the voice path can't render — so by voice you heard "you have two models installed" and
+        # never which two. Speech is the only channel a voice user has; the answer has to be IN it.
+        names = ", ".join(m["name"] for m in models)
+        n = len(models)
+        return {"speech": f"You have {n} language model{'s' if n != 1 else ''} installed: {names}.",
                 "list": lines}
 
     async def _status(self):
@@ -104,7 +108,9 @@ class ModelAgent(BaseAgent):
         for role, desc in ROLES.items():
             m = bound.get(role)
             parts.append(f"{role} ({desc}): {m or default + ' — the default'}")
-        speech = "Here's which model handles which job."
+        # Say the assignments, don't just gesture at them — by voice "Here's which model handles
+        # which job" with the answer in the list card is no answer at all (same bug as _list).
+        speech = "Here's which model handles which job. " + "; ".join(parts) + "."
         pulls = self.models.pull_status()
         active = {m: st for m, st in pulls.items() if not st.get("done")}
         for m, st in active.items():
