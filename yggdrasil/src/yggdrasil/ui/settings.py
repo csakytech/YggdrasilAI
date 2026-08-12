@@ -101,11 +101,25 @@ class SettingsWindow(Gtk.Window):
                       "Which search engine Jarvis opens for voice searches.",
                       self._engine)
 
+        # --- Models (its own window — five roles need room to breathe, not a cramped row) ---
+        models_btn = Gtk.Button(label="Choose models…")
+        models_btn.connect("clicked", self._open_models)
+        self._add_row("AI models",
+                      f"Pick which model does each job — routing, reasoning, coding, writing, "
+                      "seeing. Install a specialty model and put it where it belongs.",
+                      models_btn)
+
         note = Gtk.Label()
         note.set_markup("<span foreground='#888' size='small'>Changes save instantly and apply "
                         "to what you say next.</span>")
         note.set_xalign(0.0)
         outer.pack_start(note, False, False, 0)
+
+    def _open_models(self, _btn: Gtk.Button) -> None:
+        from .models_screen import ModelsWindow
+        win = ModelsWindow()
+        win.set_transient_for(self)
+        win.show_all()
 
     def _add_row(self, title: str, subtitle: str, control: Gtk.Widget) -> None:
         label = Gtk.Label()

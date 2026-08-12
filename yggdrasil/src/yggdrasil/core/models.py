@@ -81,6 +81,69 @@ def _cfg_path() -> Path:
     return Path(base) / "yggdrasil" / "models.json"
 
 
+# Pseudo-value meaning "no explicit binding — follow the default model". Underscored so it can
+# never collide with a real Ollama model name. Lives here (not in the GTK screen) so the picker's
+# logic is testable without a display.
+DEFAULT_CHOICE = "__default__"
+
+# Seats where a weak model does visible harm, so the picker warns before you seat something small.
+# The planner routes every utterance; a poor one misroutes ("close the window" -> sleep the PC).
+# Vision must be MULTIMODAL — a text model bound here would hallucinate a description of the screen.
+ROLE_WARNING: dict[str, str] = {
+    "planner": "This picks what every command does. A small or unusual model here can send your "
+               "words to the wrong place — change it only if you know the model routes well.",
+    "vision": "This one must be a model that can SEE images (a vision model). An ordinary text "
+              "model here would make up what's on your screen.",
+}
+
+
+def role_options(installed: list[str], bindings: dict, default_model: str) -> list[dict]:
+    """The data behind the Models screen, GUI-free so it's testable. One entry per role: its
+    label, the choices to offer (Default first, then every installed model), and which is
+    current. A binding to a since-removed model is shown (not hidden) so a broken role is visible
+    and fixable rather than silently vanishing."""
+    rows = []
+    for role, desc in ROLES.items():
+        bound = bindings.get(role)
+        current = bound if bound in installed else (DEFAULT_CHOICE if not bound else bound)
+        choices = [(DEFAULT_CHOICE, f"Default — {default_model}")]
+        for name in installed:
+            choices.append((name, name))
+        if bound and bound not in installed:
+            choices.append((bound, f"{bound}  (not installed)"))
+        rows.append({"role": role, "desc": desc, "choices": choices,
+                     "current": current, "warning": ROLE_WARNING.get(role)})
+    return rows
+
+
+def apply_choice(manager: "ModelManager", role: str, value: str) -> None:
+    """Persist one Models-screen choice. DEFAULT_CHOICE unbinds; anything else binds. Roles
+    resolve at call time, so this takes effect on the next request with no restart."""
+    if value == DEFAULT_CHOICE:
+        manager.unbind(role)
+    else:
+        manager.bind(role, value)
+
+
+def list_installed_sync(host: str = "http://127.0.0.1:11434") -> list[dict]:
+    """Locally installed models, synchronously, for the GTK Settings process (which has no async
+    loop and shouldn't grow one for a dropdown). urllib, not httpx — no third-party import in a
+    UI helper. Never raises: an unreachable Ollama returns [] and the screen says so."""
+    import json as _json
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"{host.rstrip('/')}/api/tags", timeout=5) as r:
+            data = _json.loads(r.read().decode("utf-8"))
+        out = []
+        for m in data.get("models", []):
+            out.append({"name": m.get("name", ""),
+                        "size_gb": round((m.get("size") or 0) / 1e9, 1)})
+        return [m for m in out if m["name"]]
+    except Exception:
+        return []
+
+
 class RoleProvider(LLMProvider):
     """A live proxy: resolves role -> model at CALL time, so rebinding a role takes
     effect immediately for every agent that holds this provider."""
